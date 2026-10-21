@@ -20,7 +20,8 @@ DEFAULT_USER_AGENT = "IhaveaJobBot/0.1 (+https://github.com/ankitdixit23/IhaveaJ
 
 class FetchError(Exception):
     """A request failed. ``kind`` is one of: timeout, connection, http_status,
-    rate_limited, robots_disallowed, too_large, parse_error."""
+    not_found (404/410), blocked (401/403, bot protection), rate_limited,
+    robots_disallowed, too_large, parse_error, render_unavailable, render_error."""
 
     def __init__(self, kind: str, message: str, url: str | None = None, status: int | None = None):
         super().__init__(message)
@@ -67,6 +68,23 @@ class HttpClient:
         except ValueError as exc:
             raise FetchError("parse_error", f"Malformed JSON from {url}: {exc}", url=url) from exc
 
+    def post_json(self, url: str, body: Any) -> Any:
+        """POST a JSON body to a public read-only search endpoint (e.g. Workday)."""
+        resp = self._get(url, accept="application/json", method="POST", json_body=body)
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise FetchError("parse_error", f"Malformed JSON from {url}: {exc}", url=url) from exc
+
+    def get_page(self, url: str) -> tuple[str, str]:
+        """Fetch an HTML page (robots-checked). Returns (final_url, text)."""
+        self.ensure_allowed(url)
+        resp = self._get(url)
+        final = getattr(resp, "url", None) or url
+        if final != url:
+            self.ensure_allowed(final)
+        return final, resp.text
+
     def ensure_allowed(self, url: str) -> None:
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
@@ -77,7 +95,7 @@ class HttpClient:
             except FetchError as exc:
                 # 4xx on robots.txt => no restrictions (RFC 9309). Anything else
                 # (5xx/timeout) => be conservative and treat as disallowed.
-                if exc.kind == "http_status" and exc.status and 400 <= exc.status < 500:
+                if exc.status and 400 <= exc.status < 500:
                     self._robots[origin] = None
                 else:
                     raise FetchError("robots_disallowed", f"robots.txt unavailable for {origin}: {exc}", url=url) from exc
@@ -94,7 +112,8 @@ class HttpClient:
                 self._sleep(wait)
         self._last_request[host] = time.monotonic()
 
-    def _get(self, url: str, params: dict[str, Any] | None = None, accept: str | None = None) -> requests.Response:
+    def _get(self, url: str, params: dict[str, Any] | None = None, accept: str | None = None,
+             method: str = "GET", json_body: Any = None) -> requests.Response:
         host = urlsplit(url).netloc
         headers = {"Accept": accept} if accept else None
         last_error: FetchError | None = None
@@ -102,7 +121,10 @@ class HttpClient:
             self._throttle(host)
             self.request_count += 1
             try:
-                resp = self.session.get(url, params=params, headers=headers, timeout=self.timeout, stream=True)
+                if method == "POST":
+                    resp = self.session.post(url, json=json_body, headers=headers, timeout=self.timeout, stream=True)
+                else:
+                    resp = self.session.get(url, params=params, headers=headers, timeout=self.timeout, stream=True)
                 body = resp.raw.read(self.max_bytes + 1, decode_content=True) if resp.raw is not None else resp.content
                 if len(body) > self.max_bytes:
                     resp.close()
@@ -124,7 +146,9 @@ class HttpClient:
                         self._sleep(retry_after)
                         continue
                 elif resp.status_code >= 400:
-                    raise FetchError("http_status", f"HTTP {resp.status_code} from {url}", url=url, status=resp.status_code)
+                    code = resp.status_code
+                    kind = "not_found" if code in (404, 410) else "blocked" if code in (401, 403) else "http_status"
+                    raise FetchError(kind, f"HTTP {code} from {url}", url=url, status=code)
                 else:
                     return resp
             if attempt < self.max_attempts:

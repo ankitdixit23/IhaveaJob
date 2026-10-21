@@ -1,0 +1,70 @@
+name: add careers page
+
+# Add a company from GitHub's website or mobile app: Actions → "add careers page"
+# → Run workflow → paste the careers URL (after searching/filtering for your field).
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Careers page URL (any company; search/filter first, then copy the address bar)"
+        required: true
+      name:
+        description: "Company name (optional)"
+        required: false
+      keywords:
+        description: "Only alert on jobs mentioning any of these, comma-separated (optional)"
+        required: false
+      locations:
+        description: "Only alert on these locations, comma-separated, e.g. New York,Remote (optional)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: config-edit
+  cancel-in-progress: false
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install ".[render]" && python -m playwright install --with-deps chromium > /dev/null
+
+      - name: Preview the page (what IhaveaJob can read)
+        env:  # inputs go through env vars, never into the script text
+          URL: ${{ inputs.url }}
+          NAME: ${{ inputs.name }}
+          KEYWORDS: ${{ inputs.keywords }}
+          LOCATIONS: ${{ inputs.locations }}
+        run: |
+          set +e
+          ihaveajob --log-format text check-source "$URL" ${NAME:+--company "$NAME"} \
+            ${KEYWORDS:+--keywords "$KEYWORDS"} ${LOCATIONS:+--locations "$LOCATIONS"} --limit 15 | tee preview.txt
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          { echo "## Preview"; echo '```'; cat preview.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add to config/companies.yaml and commit
+        env:
+          URL: ${{ inputs.url }}
+          NAME: ${{ inputs.name }}
+          KEYWORDS: ${{ inputs.keywords }}
+          LOCATIONS: ${{ inputs.locations }}
+        run: |
+          if [ "$code" != "0" ]; then
+            echo "::warning::The page could not be read right now (see preview). Adding it anyway; the monitor will retry and report errors."
+          fi
+          ihaveajob add-source "$URL" ${NAME:+--company "$NAME"} ${KEYWORDS:+--keywords "$KEYWORDS"} ${LOCATIONS:+--locations "$LOCATIONS"}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config/companies.yaml
+          git commit -m "Add careers page: $URL"
+          git push
+          echo "Added. The next hourly run records a baseline; after that you get emails about changes." >> "$GITHUB_STEP_SUMMARY"

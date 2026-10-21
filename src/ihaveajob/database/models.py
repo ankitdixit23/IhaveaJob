@@ -63,6 +63,8 @@ class Source(Base):
     last_success_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_complete_count: Mapped[int | None] = mapped_column(Integer)
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # How the source was last read (e.g. {"mode": "links:headless browser"}) and recent error info.
+    state: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
     company: Mapped[Company] = relationship(back_populates="sources")
 
@@ -162,3 +164,51 @@ class JobChange(Base):
     changed_fields: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
     job: Mapped[Job] = relationship(back_populates="changes")
+
+
+class PageSnapshot(Base):
+    """Visible-text snapshot for pages where individual jobs can't be identified."""
+
+    __tablename__ = "page_snapshots"
+    __table_args__ = (Index("ix_page_snapshots_source_captured", "source_id", "captured_at"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("monitor_runs.id"))
+    captured_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    lines: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    added: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    removed: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    is_baseline: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class Notification(Base):
+    """One delivery attempt (e.g. an hourly digest email).
+
+    ``recipient_key`` is a hash of the address, so the (possibly public) job
+    database never contains email addresses.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_recipient_created", "recipient_key", "created_at"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    # started (subscription marker) | sent | failed | dry_run
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    subject: Mapped[str | None] = mapped_column(Text)
+    item_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class NotificationItem(Base):
+    """What a recipient has already been told about: prevents duplicates."""
+
+    __tablename__ = "notification_items"
+    __table_args__ = (UniqueConstraint("recipient_key", "item_type", "item_id", name="uq_notification_items"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    notification_id: Mapped[int] = mapped_column(ForeignKey("notifications.id"), nullable=False)
+    recipient_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)  # job_change | page_snapshot
+    item_id: Mapped[int] = mapped_column(Integer, nullable=False)

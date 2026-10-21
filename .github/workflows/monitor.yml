@@ -2,15 +2,19 @@ name: monitor
 
 on:
   schedule:
-    # Every 30 minutes, offset from :00/:30 when GitHub's scheduler is busiest.
-    # GitHub may delay or skip scheduled runs under load; see docs/scheduling.md.
-    - cron: "7,37 * * * *"
+    # Hourly, at minute 7 (GitHub's scheduler is busiest at :00). GitHub may
+    # delay or skip scheduled runs under load; see docs/scheduling.md.
+    - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
       source:
         description: "Only run this source key (blank = all enabled sources)"
         required: false
         default: ""
+      send_email:
+        description: "Send the email digest after the run"
+        type: boolean
+        default: true
 
 # Never run two monitors at once (they would race on the stored database).
 concurrency:
@@ -23,13 +27,13 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
-      # Set the DATABASE_URL repository secret (e.g. a free Postgres database)
-      # to store history there. Without it, a SQLite file containing ONLY public
-      # job data is kept on the `data` branch of this repository.
+      # Optional: a private Postgres database for history. Without it, a SQLite
+      # file with PUBLIC job data only is kept on the `data` branch.
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       IHAVEAJOB_LOG_FORMAT: json
+      IHAVEAJOB_TIMEZONE: ${{ vars.IHAVEAJOB_TIMEZONE || 'UTC' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +44,16 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install
-        run: pip install ".[postgres]"
+        run: pip install ".[postgres,render]"
+
+      - name: Cache headless browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+
+      - name: Install headless browser (for JavaScript-built careers pages)
+        run: python -m playwright install --with-deps chromium
 
       - name: Restore SQLite database from the data branch
         if: env.DATABASE_URL == ''
@@ -73,12 +86,29 @@ jobs:
             echo '```'
             cat run.txt
             echo '```'
+            echo '```'
             ihaveajob --log-format text changes --hours 1 --types new,updated,closed,reopened || true
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Email what changed
+        id: notify
+        if: always() && steps.run.outputs.code != '1' && (github.event_name != 'workflow_dispatch' || inputs.send_email)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: |
+          set +e
+          ihaveajob notify
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
       - name: Save SQLite database to the data branch
-        # Runs even when the monitor reported failures, so partial progress and
-        # failure counters are kept. Skipped if the run crashed before writing.
+        # Runs even when a source or the email failed, so progress, failure
+        # counters and "already emailed" records are kept.
         if: always() && env.DATABASE_URL == '' && hashFiles('data/ihaveajob.db') != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,7 +116,7 @@ jobs:
           store="$RUNNER_TEMP/data-store"
           mkdir -p "$store" && cp data/ihaveajob.db "$store/" && cd "$store"
           printf '%s\n' "# data branch" "Auto-generated SQLite database of PUBLIC job postings, written by the monitor workflow." \
-            "Force-pushed as a single commit each run so history does not grow. Never store private data here." > README.md
+            "Force-pushed as a single commit each run so history does not grow. Contains no email addresses." > README.md
           git init -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -95,8 +125,8 @@ jobs:
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" data:data
           echo "Saved database to the data branch."
 
-      - name: Fail if a source keeps failing
-        if: steps.run.outputs.code != '0'
+      - name: Fail if something needs attention
+        if: always() && (steps.run.outputs.code != '0' || steps.notify.outputs.code == '3')
         run: |
-          echo "::error::Monitor exit code ${{ steps.run.outputs.code }}. 2 = a source failed 3+ runs in a row (check the log above); 1 = configuration/database error."
+          echo "::error::monitor exit=${{ steps.run.outputs.code }} notify exit=${{ steps.notify.outputs.code }}. monitor 2 = a source failed 3+ runs in a row; 1 = config/database error. notify 3 = email could not be sent (check SMTP secrets)."
           exit 1

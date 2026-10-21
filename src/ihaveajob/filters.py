@@ -14,7 +14,7 @@ def passes_structural(job: NormalizedJob, filters: SourceFilters) -> bool:
     if filters.departments and not _contains_any((job.department or "").lower(), filters.departments):
         return False
     if filters.locations:
-        loc_text = " | ".join(job.locations).lower()
+        loc_text = " | ".join(job.locations or [job.extra.get("card_text") or ""]).lower()
         if job.workplace_type:
             loc_text += " | " + job.workplace_type.lower()
         if not _contains_any(loc_text, filters.locations):
@@ -23,7 +23,8 @@ def passes_structural(job: NormalizedJob, filters: SourceFilters) -> bool:
 
 
 def passes_keywords(job: NormalizedJob, filters: SourceFilters) -> bool:
-    text = " ".join(filter(None, [job.title, job.department, job.description_text])).lower()
+    text = " ".join(filter(None, [job.title, job.department, job.description_text,
+                                  job.extra.get("card_text")])).lower()
     if filters.keywords_exclude and _contains_any(" ".join(filter(None, [job.title, job.department])).lower(),
                                                    filters.keywords_exclude):
         return False

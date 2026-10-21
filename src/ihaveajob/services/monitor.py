@@ -16,6 +16,8 @@ Safety rules (each covered by tests):
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -27,7 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..collectors import CollectContext, get_collector
 from ..config import Settings, slugify
-from ..database.models import Company, Job, JobChange, MonitorRun, Source, SourceRun
+from ..database.models import Company, Job, JobChange, MonitorRun, PageSnapshot, Source, SourceRun
 from ..filters import matches
 from ..http import FetchError, HttpClient
 from ..models import FetchResult, NormalizedJob, SourceConfig, SourceFilters
@@ -36,6 +38,19 @@ from ..normalization import TRACKED_FIELDS, canonical_url, content_hash, normali
 log = logging.getLogger("ihaveajob.monitor")
 
 _MAX_DIFF_CHARS = 300
+_MAX_DIFF_LINES = 12
+
+
+def line_diff(old: list[str], new: list[str], limit: int = _MAX_DIFF_LINES) -> tuple[list[str], list[str]]:
+    """Lines added and removed between two texts (order-aware, capped)."""
+    added, removed = [], []
+    for op, a1, a2, b1, b2 in difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes():
+        if op in ("replace", "delete"):
+            removed.extend(old[a1:a2])
+        if op in ("replace", "insert"):
+            added.extend(new[b1:b2])
+    clip = lambda xs: [_short(x) for x in xs if x.strip()][:limit]  # noqa: E731
+    return clip(added), clip(removed)
 
 
 @dataclass
@@ -51,6 +66,7 @@ class SourceOutcome:
     baseline: bool = False
     complete: bool = False
     closure_check: str | None = None
+    page_changed: bool = False
     error: str | None = None
     consecutive_failures: int = 0
     notes: list[str] = field(default_factory=list)
@@ -128,7 +144,11 @@ def _diff(old: dict[str, object], new: dict[str, object]) -> dict[str, dict[str,
             continue
         if normalize_for_hash(old.get(name)) != normalize_for_hash(new.get(name)):
             if name == "description_text":
-                out[name] = {"old_len": len(old.get(name) or ""), "new_len": len(new.get(name) or "")}
+                old_lines = [l.strip() for l in str(old.get(name) or "").splitlines() if l.strip()]
+                new_lines = [l.strip() for l in str(new.get(name) or "").splitlines() if l.strip()]
+                added, removed = line_diff(old_lines, new_lines)
+                out[name] = {"old_len": len(old.get(name) or ""), "new_len": len(new.get(name) or ""),
+                             "added": added, "removed": removed}
             else:
                 out[name] = {"old": _short(old.get(name)), "new": _short(new.get(name))}
     return out
@@ -171,7 +191,7 @@ def _as_normalized(row: Job) -> NormalizedJob:
     return NormalizedJob(
         external_id=row.external_id, title=row.title, company=row.company_name, url=row.url or "",
         locations=list(row.locations or []), department=row.department, employment_type=row.employment_type,
-        workplace_type=row.workplace_type, description_text=row.description_text,
+        workplace_type=row.workplace_type, description_text=row.description_text, extra=dict(row.extra or {}),
     )
 
 
@@ -182,6 +202,8 @@ def process_result(
     baseline = source.baseline_completed_at is None
     outcome = SourceOutcome(key=source.key, status="success" if result.complete else "partial",
                             baseline=baseline, complete=result.complete, notes=list(result.notes))
+    if result.page_text is not None:
+        outcome.page_changed = _record_snapshot(session, source, run, result.page_text, baseline, now)
     rows = list(session.scalars(select(Job).where(Job.source_id == source.id)))
     by_id = {r.external_id: r for r in rows}
     by_url = {r.canonical_url: r for r in rows if r.canonical_url}
@@ -270,6 +292,31 @@ def process_result(
     return outcome
 
 
+def _mode_family(state: dict | None) -> str | None:
+    mode = (state or {}).get("mode")
+    if not mode:
+        return None
+    family = mode.split(":", 1)[0]
+    return mode if family == "board" else family
+
+
+def _record_snapshot(session: Session, source: Source, run: MonitorRun, lines: list[str], baseline: bool,
+                     now: datetime) -> bool:
+    digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+    prev = session.scalars(select(PageSnapshot).where(PageSnapshot.source_id == source.id)
+                           .order_by(PageSnapshot.id.desc()).limit(1)).first()
+    if prev is not None and prev.content_hash == digest:
+        return False
+    if prev is None or baseline:
+        session.add(PageSnapshot(source_id=source.id, run_id=run.id, captured_at=now, content_hash=digest,
+                                 lines=lines, added=[], removed=[], is_baseline=True))
+        return False
+    added, removed = line_diff(list(prev.lines or []), lines, limit=40)
+    session.add(PageSnapshot(source_id=source.id, run_id=run.id, captured_at=now, content_hash=digest, lines=lines,
+                             added=added, removed=removed, is_baseline=False))
+    return bool(added or removed)
+
+
 def run_monitor(
     sessions: sessionmaker[Session],
     configs: list[SourceConfig],
@@ -332,11 +379,21 @@ def _run_source(
         source_run = SourceRun(run_id=run_id, source_id=source.id, started_at=now_fn(), status="failed")
         try:
             result = collector.fetch(cfg, client, ctx)
+            if result.resolved:
+                old_family, new_family = _mode_family(source.state), _mode_family(result.resolved)
+                if old_family and new_family != old_family and source.baseline_completed_at is not None:
+                    # Different reading method => different job ids. Rebuild the
+                    # baseline quietly instead of reporting everything as new/closed.
+                    source.baseline_completed_at = None
+                    source.last_complete_count = None
+                    result.notes.append(f"Reading method changed ({old_family} -> {new_family}); rebuilding baseline.")
+            source.state = {**(result.resolved or {}), "notes": result.notes[:5]}
             outcome = process_result(session, source, run, result, settings, cfg.filters, now_fn())
         except FetchError as exc:
             session.rollback()
             source = session.scalars(select(Source).where(Source.key == cfg.key)).one()
             source.consecutive_failures += 1
+            source.state = {**(source.state or {}), "last_error": {"kind": exc.kind, "message": str(exc)[:500]}}
             outcome = SourceOutcome(key=cfg.key, status="failed", error=f"{exc.kind}: {exc}",
                                     consecutive_failures=source.consecutive_failures)
             source_run = SourceRun(run_id=run_id, source_id=source.id, started_at=now_fn(), status="failed",

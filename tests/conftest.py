@@ -43,6 +43,16 @@ class FakeClient(HttpClient):
     def get_json(self, url: str, *, params=None) -> Any:
         return self._lookup(url)
 
+    def get_page(self, url: str) -> tuple[str, str]:
+        return url, self._lookup(url)
+
+    def post_json(self, url: str, body: Any) -> Any:
+        value = self._lookup(url)
+        return value(body) if callable(value) else value
+
+    def ensure_allowed(self, url: str) -> None:
+        return None
+
 
 class Clock:
     def __init__(self, start: datetime | None = None):
@@ -53,6 +63,12 @@ class Clock:
 
     def advance(self, **kwargs: float) -> None:
         self.now += timedelta(**kwargs)
+
+
+@pytest.fixture(autouse=True)
+def no_headless_browser(monkeypatch):
+    """Unit tests never launch a browser."""
+    monkeypatch.setenv("IHAVEAJOB_DISABLE_RENDER", "1")
 
 
 @pytest.fixture

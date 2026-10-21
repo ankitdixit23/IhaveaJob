@@ -63,7 +63,7 @@ class SourceConfig:
 
     key: str
     company: str
-    adapter: str
+    adapter: str  # "auto" = universal reader (works with any careers page)
     url: str
     filters: SourceFilters = field(default_factory=SourceFilters)
     enabled: bool = True
@@ -112,3 +112,8 @@ class FetchResult:
     complete: bool
     total_reported: int | None = None
     notes: list[str] = field(default_factory=list)
+    # When no individual jobs can be identified: the page's visible text lines,
+    # snapshotted so line-level changes can be reported.
+    page_text: list[str] | None = None
+    # How a generic ("auto") source was read this time, e.g. {"mode": "links:page"}.
+    resolved: dict[str, Any] | None = None

@@ -158,6 +158,12 @@ def test_detect_lever_url_filters_become_source_filters():
     assert det.filters.departments == ["Data"] and det.filters.locations == ["Remote"]
 
 
-def test_detect_unknown_site_is_explained():
-    with pytest.raises(UnsupportedUrl, match="No collector supports"):
-        detect_source("https://careers.example.com/jobs")
+def test_unknown_sites_use_the_universal_reader():
+    det = detect_source("https://jobs.careers.example.co.uk/global/en/search?q=climate")
+    assert det.adapter == "auto" and det.company_hint == "Example"
+    assert det.url == "https://jobs.careers.example.co.uk/global/en/search?q=climate"
+
+
+def test_non_urls_are_rejected():
+    with pytest.raises(UnsupportedUrl):
+        detect_source("not a url")

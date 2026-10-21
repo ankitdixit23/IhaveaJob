@@ -2,7 +2,7 @@
 
 Exit codes for ``run``: 0 = ok (including transient source failures),
 2 = at least one source has failed 3+ runs in a row (needs attention),
-1 = configuration/database error.
+1 = configuration/database error. ``notify``: 3 = an email failed to send.
 """
 
 from __future__ import annotations
@@ -16,14 +16,16 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from .collectors import CollectContext, UnsupportedUrl, detect_source, get_collector
-from .config import DEFAULT_CONFIG_PATH, ConfigError, Settings, append_source, load_sources, slugify
+from .config import DEFAULT_CONFIG_PATH, ConfigError, Settings, append_source, default_key, load_sources
 from .database import make_engine, session_factory, upgrade
 from .database.models import Job, JobChange, Source, SourceRun
 from .filters import matches
 from .http import FetchError, HttpClient
 from .logging_setup import configure_logging
 from .models import SourceConfig, SourceFilters
+from .notifications.email import EmailSettings, NotificationError, SmtpEmailNotifier
 from .services.monitor import run_monitor
+from .services.notify import send_digests
 
 
 def _csv(value: str | None) -> list[str]:
@@ -56,12 +58,7 @@ def _source_from_url(args: argparse.Namespace) -> tuple[SourceConfig, list[str]]
     det = detect_source(args.url)
     company = args.company or det.company_hint or "Company"
     filters = _filters_from_args(args, det.filters)
-    key = args.key or slugify(company + ("-" + "-".join(filters.keywords_any[:2]) if filters.keywords_any else ""))
-    if det.adapter == "google_careers" and not args.key:
-        from urllib.parse import parse_qsl, urlsplit
-
-        q = dict(parse_qsl(urlsplit(det.url).query)).get("q")
-        key = slugify(f"{company}-{q}" if q else company)
+    key = args.key or default_key(company, args.url)
     return SourceConfig(key=key, company=company, adapter=det.adapter, url=det.url, filters=filters,
                         options=det.options), det.notes
 
@@ -75,13 +72,23 @@ def cmd_check_source(args: argparse.Namespace) -> int:
     try:
         result = get_collector(source.adapter).fetch(source, client, CollectContext(max_detail_fetches=args.max_details))
     except FetchError as exc:
-        print(f"FETCH FAILED ({exc.kind}): {exc}", file=sys.stderr)
+        hint = {"not_found": "The page doesn't exist (404). Check the link in a browser.",
+                "blocked": "The site refused automated access (bot protection or login). It can't be monitored.",
+                "robots_disallowed": "The site's robots.txt forbids automated reading of this page.",
+                }.get(exc.kind, "")
+        print(f"FETCH FAILED ({exc.kind}): {exc}\n{hint}".rstrip(), file=sys.stderr)
         return 1
     hits = [j for j in result.jobs if matches(j, source.filters)]
+    if result.resolved:
+        print(f"Read via: {result.resolved.get('mode')}" + (f" ({result.resolved['url']})" if result.resolved.get('url') else ""))
     print(f"Fetched {len(result.jobs)} jobs (source reports {result.total_reported}); complete={result.complete}; "
           f"{len(hits)} match your filters; {client.request_count} HTTP requests")
     for n in result.notes:
         print(f"  note: {n}")
+    if result.page_text is not None:
+        print(f"Watching page text ({len(result.page_text)} lines). First lines:")
+        for line in result.page_text[:15]:
+            print(f"  | {line[:120]}")
     for j in hits[: args.limit]:
         pub = j.published_at.date().isoformat() if j.published_at else "unknown"
         print(f"- {j.title} | {j.location or 'location n/a'} | {j.department or '-'} | published {pub} | {j.url}")
@@ -170,6 +177,45 @@ def cmd_changes(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_notify(args: argparse.Namespace) -> int:
+    try:
+        email = EmailSettings.from_env()
+    except NotificationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if email is None and not args.dry_run:
+        print("Email not configured (set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD and ALERT_EMAIL_TO); skipping.")
+        return 0
+    recipients = email.recipients if email else (args.to or ["preview@example.invalid"])
+    notifier = SmtpEmailNotifier(email) if email else None
+    outcomes = send_digests(_sessions(Settings.from_env()), notifier, recipients, dry_run=args.dry_run)
+    failed = False
+    for o in outcomes:
+        who = "recipient" if not args.dry_run else o.recipient
+        print(f"{who}: {o.status} items={o.items}" + (f" subject={o.subject!r}" if o.subject else "")
+              + (f" error={o.error}" if o.error else ""))
+        failed |= o.status == "failed"
+    return 3 if failed else 0
+
+
+def cmd_test_email(args: argparse.Namespace) -> int:
+    try:
+        email = EmailSettings.from_env()
+        if email is None:
+            print("error: set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD and ALERT_EMAIL_TO first", file=sys.stderr)
+            return 1
+        notifier = SmtpEmailNotifier(email)
+        for to in email.recipients:
+            notifier.send(to, "IhaveaJob test email",
+                          "If you can read this, IhaveaJob can send you job alerts.\n\n"
+                          f"SMTP server: {email.host}:{email.port}")
+    except NotificationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Test email sent to {len(email.recipients)} recipient(s).")
+    return 0
+
+
 def cmd_db_upgrade(args: argparse.Namespace) -> int:
     upgrade(make_engine(Settings.from_env().database_url))
     print("Database is up to date.")
@@ -203,6 +249,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--hours", type=float, default=24); s.add_argument("--types", help="e.g. new,closed")
     s.add_argument("--all", action="store_true", help="include jobs that don't match source filters")
     s.add_argument("--limit", type=int, default=100); s.set_defaults(func=cmd_changes)
+
+    s = sub.add_parser("notify", help="email what changed since the last email (one digest per recipient)")
+    s.add_argument("--dry-run", action="store_true", help="print the email instead of sending it")
+    s.add_argument("--to", action="append", help=argparse.SUPPRESS)
+    s.set_defaults(func=cmd_notify)
+
+    s = sub.add_parser("test-email", help="send a test email using the SMTP settings"); s.set_defaults(func=cmd_test_email)
 
     s = sub.add_parser("db-upgrade", help="apply database migrations"); s.set_defaults(func=cmd_db_upgrade)
     return p

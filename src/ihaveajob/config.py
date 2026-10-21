@@ -44,6 +44,16 @@ def slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:60] or "source"
 
 
+def default_key(company: str, url: str) -> str:
+    """Readable, stable key: company plus any search term in the URL."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    params = dict(parse_qsl(urlsplit(url).query))
+    term = next((params[k] for k in ("q", "query", "search", "keyword", "keywords", "base_query", "searchText")
+                 if params.get(k)), None)
+    return slugify(f"{company}-{term}" if term else company)
+
+
 def load_sources(path: Path = DEFAULT_CONFIG_PATH) -> list[SourceConfig]:
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")
@@ -58,14 +68,33 @@ def load_sources(path: Path = DEFAULT_CONFIG_PATH) -> list[SourceConfig]:
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ConfigError(f"{path}: sources[{i}] must be a mapping")
-        missing = [k for k in ("key", "company", "adapter", "url") if not entry.get(k)]
-        if missing:
-            raise ConfigError(f"{path}: sources[{i}] missing {', '.join(missing)}")
+        if not entry.get("url"):
+            raise ConfigError(f"{path}: sources[{i}] missing url")
+        if entry.get("name") and not entry.get("company"):
+            entry = {**entry, "company": entry["name"]}
+        # Only `url` is required: everything else can be worked out from it.
+        if not entry.get("adapter") or not entry.get("company") or not entry.get("key"):
+            from .collectors import UnsupportedUrl, detect_source
+
+            try:
+                det = detect_source(str(entry["url"]))
+            except UnsupportedUrl as exc:
+                raise ConfigError(f"{path}: sources[{i}]: {exc}") from exc
+            entry = dict(entry)
+            if not entry.get("adapter"):
+                entry["adapter"], entry["url"] = det.adapter, det.url
+                entry["options"] = {**det.options, **(entry.get("options") or {})}
+                if det.filters.to_dict() and not entry.get("filters"):
+                    entry["filters"] = det.filters.to_dict()
+            if not entry.get("company"):
+                entry["company"] = det.company_hint or "Company"
+            if not entry.get("key"):
+                entry["key"] = default_key(str(entry["company"]), str(entry["url"]))
         key = str(entry["key"])
         if not _KEY_RE.match(key):
             raise ConfigError(f"{path}: invalid key {key!r} (lowercase letters, digits, - and _)")
         if key in seen:
-            raise ConfigError(f"{path}: duplicate key {key!r}")
+            raise ConfigError(f"{path}: duplicate key {key!r}: give one of them a different `key:`")
         seen.add(key)
         if entry["adapter"] not in COLLECTORS:
             raise ConfigError(f"{path}: {key}: unknown adapter {entry['adapter']!r}")
