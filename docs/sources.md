@@ -1,85 +1,109 @@
-# Adding companies and sources
+# Adding careers pages
 
-A **source** is one careers page you want watched, usually with your own search or filter applied. Sources live in [`config/companies.yaml`](../config/companies.yaml). Adding one never requires code changes, as long as the site type is supported.
+**Any public careers page link works.** Go to a company's careers page, search or filter it for what you want if it has a search box, copy the address bar, and add it. IhaveaJob works out the best way to read it.
 
-## The easy way: paste a URL
+## Three ways to add a page
 
-1. Open the company's careers page in your browser.
-2. Search or filter for your field: keyword, department, location, sort order.
-3. Copy the URL from the address bar.
-4. Preview it, then add it:
+**1. From GitHub (no terminal; works on your phone).** Go to **Actions → "add careers page" → Run workflow**, paste the URL, and optionally add a company name, keywords and locations. The workflow previews what it can read, adds the page to `config/companies.yaml`, and commits it. The preview appears on the run's Summary page.
 
-```bash
-ihaveajob check-source "<url>"   # live preview: job count, matches, sample titles. Writes nothing.
-ihaveajob add-source  "<url>"    # appends an entry to config/companies.yaml
+**2. Edit `config/companies.yaml`.** Only `url` is required:
+
+```yaml
+sources:
+  - url: https://www.wri.org/careers
+  - url: https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=climate
+    name: NVIDIA
+    filters:
+      keywords_any: [climate, sustainability, energy]
+      locations: [Remote, California]
 ```
 
-5. Commit and push `config/companies.yaml`. The next scheduled run builds a **baseline** for the new source: existing jobs are recorded but not announced as new.
-
-### Adding your own filters
-
-Some sites filter only inside the browser, so the filter never appears in the URL. Watershed's location buttons are an example. In that case, add the filters yourself:
-
+**3. Command line:**
 ```bash
-ihaveajob add-source "https://watershed.com/careers" \
-  --keywords "data,climate,policy" \
-  --exclude "intern,sales" \
-  --departments "Engineering,Sustainability" \
-  --locations "New York,Remote"
+ihaveajob check-source "<url>"      # preview: how it's read, what's found. Writes nothing.
+ihaveajob add-source  "<url>" --keywords "climate,data" --locations "New York,Remote"
 ```
 
-- `--keywords`: the job must mention at least one, in its title, department or description.
-- `--exclude`: drop jobs whose title or department mention any of these.
-- `--departments` and `--locations`: substring matches. "Remote" also matches the job's remote/workplace flag.
+The first run after adding a page records a **baseline**: existing jobs are remembered, not emailed. After that you get emailed about changes.
 
-Filters are applied by IhaveaJob after fetching. Jobs that don't match are still tracked, so closures and updates stay accurate, but they're flagged `matches_filters = false` and hidden from `ihaveajob changes` and from future alerts.
+## How a link is read
 
-Options: `--company "Display Name"` and `--key my-key` override the detected name and key.
+Specialised readers handle sites with known structure:
 
-## Supported sites
+| Site | Method |
+|---|---|
+| Workday (`*.myworkdayjobs.com`) | The board's public JSON feed. Search text and filters in the URL are applied. |
+| Ashby, Greenhouse, Lever boards | Their official public job-board APIs |
+| Google Careers search | The data embedded in the results page (first page only, per robots.txt) |
+| Watershed | The listing page plus each job's structured data |
 
-| Adapter | URLs recognised | What is fetched | Pagination / completeness |
-|---|---|---|---|
-| `watershed` | `watershed.com/careers` (any locale prefix) | Listing page, plus each job's page for its description and publish date (new jobs, then refreshed daily; at most 25 per run) | Full listing: **complete** |
-| `google_careers` | `google.com/about/careers/applications/jobs/results?...` | The results page as you filtered it. Full descriptions are embedded. | **First page only** (20 jobs). robots.txt disallows `page=`, so closure detection is off when there are more matches |
-| `ashby` | `jobs.ashbyhq.com/<board>` | `api.ashbyhq.com/posting-api/job-board/<board>` | Complete |
-| `greenhouse` | `boards.greenhouse.io/<token>`, `job-boards.greenhouse.io/<token>` | `boards-api.greenhouse.io/v1/boards/<token>/jobs?content=true` | Complete if `meta.total` matches |
-| `lever` | `jobs.lever.co/<site>` (and `jobs.eu.lever.co`) | `api.lever.co/v0/postings/<site>?mode=json`. URL `team`/`location` params become filters. | Complete |
+**Every other link uses the universal reader**, which tries these in order and uses the first that works:
 
-**Many company sites embed one of the job boards.** If a company's own domain isn't supported, open one of its jobs and look at where "Apply" leads. If it goes to `jobs.ashbyhq.com/...`, `boards.greenhouse.io/...` or `jobs.lever.co/...`, add that URL instead.
+1. **An embedded job board.** Many company pages link to Workday, Ashby, Greenhouse or Lever behind the scenes. The reader switches to that board's feed. *Example: rmi.org/about/careers → RMI's Workday board.*
+2. **Structured job data** (schema.org `JobPosting`) on the page.
+3. **Job links.** Repeated links carrying a job ID, such as `/careers/job/1970…`, `/details/200314010`, `/profile/job_details/…` or `…_JR2025837`. The link text becomes the title, and nearby text (location, team) is kept as a summary.
+4. **A "Job openings" link** on a landing page, followed once. *Example: wri.org/careers → /careers/jobs.*
+5. **A headless browser** (real Chromium, on GitHub's servers) for pages built with JavaScript, then steps 1–3 again. *Examples: Microsoft, Meta.*
+6. **Page-text watch.** If no individual jobs can be identified, the page's visible text is saved each run and you're emailed the lines that changed.
 
-**Check the company name.** Board names can collide. The Greenhouse board `watershed` belongs to *Watershed Informatics*, a bioinformatics company, not Watershed the climate company. `check-source` prints the company name each API reports.
+For new jobs, the reader also opens each job's page, up to 25 per run, to pick up the description and posting date when the site provides structured data.
 
-## Verified response formats
+### What can't be monitored
 
-These were captured from a GitHub Actions runner (the same environment the scheduler uses) on 2026-10-21. Test fixtures in `tests/fixtures/` are **synthetic**: they copy these structures but every job in them is invented.
+The reader never works around a site's protections, and it reports the reason instead of failing silently:
 
-### Watershed
+| Result | Meaning |
+|---|---|
+| `blocked` | The site refuses automated visitors (HTTP 401/403, bot protection) or requires login. *Example: tesla.com/careers.* |
+| `not_found` | The link is wrong or the page was removed (HTTP 404). |
+| `robots_disallowed` | The site's robots.txt forbids automated reading of that page. |
 
-- `https://watershed.com/careers` is server-rendered HTML with 39 jobs on the probe date. Each department is a `<h3>` followed by a `<ul>` of `<a class="job-link" href="/careers/<8-hex-id>-<slug>">` with `<span>` (title) and `.job-locations small` (one per location).
-- Each job page has a schema.org `JobPosting` JSON-LD block. Fields used: `title`, `employmentUnit` (department), `employmentType`, `jobLocationType`, `description` (HTML), and `datePosted` (date only; stored with precision `date`).
-- `validThrough` is regenerated as "now + about 31 days" on every request, so it is **ignored**.
-- The "Apply" link points to Ashby (`jobs.ashbyhq.com/Watershed/<uuid>`). The 8-hex job id is the last 8 hex digits of that UUID.
-- robots.txt allows `/careers` (it disallows `/api/`, `/preview/` and others, none of which we use).
+### Verified on 2026-10-21 (from GitHub's servers)
 
-### Google Careers
+| Link | Read via | Result |
+|---|---|---|
+| watershed.com/careers | Watershed reader | 39 jobs |
+| google.com/about/careers/…?q=sustainability | Google reader | 20 of 256 (first page) |
+| jobs.careers.microsoft.com/…?q=sustainability | headless browser → job links | 20 jobs* |
+| metacareers.com/jobs?q=sustainability | headless browser → job links | 10 jobs |
+| jobs.apple.com/en-us/search?search=sustainability | job links | 20 jobs |
+| nvidia.wd5.myworkdayjobs.com/…?q=climate | Workday feed | 34 jobs with details |
+| rmi.org/about/careers | discovered Workday board | 2 jobs with details |
+| wri.org/careers | followed "Job Openings" → job links | 18 jobs |
+| amazon.jobs/en/search?base_query=sustainability | headless browser (wait strategy fixed after this test) | re-verify |
+| tesla.com/careers/search | — | `blocked` (403) |
+| edf.org/jobs | — | `not_found` (404) |
 
-- The results page embeds `AF_initDataCallback({key: 'ds:1', ..., data: [jobs, null, total_matches, page_size]})`.
-- Each job record is a list, read by position: `0` id, `1` title, `3`/`4`/`10` responsibilities, qualifications and about (HTML), `7` company (Google, DeepMind, ...), `9` locations, `12`/`13`/`14` `[epoch_seconds, nanos]`. Some records are 20 items long instead of 21.
-- Across 20 records, `12` is always the earliest and `13`/`14` move together when a job is edited. So `12` is used as the publish time, labelled `google.created_ts.inferred` because Google doesn't document it. `14` is stored as `source_updated_at`.
-- The record's own apply link is a sign-in redirect with an opaque token. The stable public job page `.../jobs/results/<id>-<slug>` is used as the link instead (checked to open the posting).
-- robots.txt (`User-agent: *`) allows `/jobs/results` but disallows `page=`. On the probe date, `q=sustainability` matched 256 jobs, of which the first 20 are readable. **Narrow your search** (keyword plus location) so the jobs you care about fit on page 1.
-- Field positions are undocumented and may change. If parsing fails, the run fails loudly and no jobs are closed.
+\* Microsoft's old search URL redirects to its new careers site and **drops the search term**. Paste a search URL from the new site (`apply.careers.microsoft.com`) instead.
 
-## Adding support for a new site
+## Tips
 
-1. Write `src/ihaveajob/collectors/<site>.py` with a `Collector` subclass:
-   - `name`: the adapter id used in YAML.
-   - `detect(url)`: return a `UrlDetection` for URLs you handle, otherwise `None`.
-   - `fetch(source, client, ctx)`: return a `FetchResult(jobs, complete, total_reported)`.
-   - Set `uses_html = True` and call `client.get_text(url, check_robots=True)` for HTML pages.
-2. Set `complete=True` **only** if the result contains every open job. When in doubt, return `False`: it only disables closure detection.
-3. Raise `FetchError("parse_error", ...)` when the page doesn't look as expected. Never return an empty list for a page you couldn't parse.
-4. Register it in `COLLECTORS` in `collectors/__init__.py`.
-5. Add a synthetic fixture and tests. Document the real response format here.
-6. Prefer official APIs or feeds over HTML, and respect each site's terms and robots.txt.
+- **Check that the search term survives.** Some sites ignore or drop URL search terms. `check-source` (or the preview in the "add careers page" workflow) shows what was actually found. If the results don't match your search, add `--keywords` filters, which IhaveaJob applies itself.
+- **Big companies show only the first page of results.** Make the search narrow (keyword plus location) so the jobs you care about are on it. On these pages, jobs that drop off are not reported as removed, because they may have just moved to page 2.
+- **Board names can collide.** The Greenhouse board `watershed` belongs to Watershed Informatics, not Watershed the climate company. Prefer the link from the company's own site.
+- **Respect site terms.** Only add pages you're allowed to read automatically.
+
+## Filters
+
+| Filter | Effect |
+|---|---|
+| `keywords_any` | Job must mention at least one, in its title, department, description or card summary |
+| `keywords_exclude` | Drop jobs whose title or department mention any |
+| `departments` | Department must contain one |
+| `locations` | A location (or "Remote") must contain one. For job-link pages, the card summary is checked. |
+
+Non-matching jobs are still tracked, so updates and removals stay correct. They're just never emailed.
+
+## Response formats (for developers)
+
+- **Watershed:** server-rendered listing (`a.job-link` under department `<h3>`s), plus per-job JSON-LD `JobPosting` with `datePosted`. `validThrough` is regenerated on every request and ignored.
+- **Google Careers:** `AF_initDataCallback` `ds:1` = `[jobs, null, total, page_size]`. Each job is a positional array: 0 id, 1 title, 3/4/10 HTML sections, 7 company, 9 locations, 12/13/14 `[epoch, nanos]`. Field 12 is treated as the posting time (inferred). robots.txt disallows `page=`.
+- **Workday:** `POST /wday/cxs/{tenant}/{site}/jobs` with `{appliedFacets, limit: 20, offset, searchText}` returns `{total, jobPostings[{title, externalPath, locationsText, postedOn, bulletFields}]}`. `total` is reported only on the first page. Details come from `GET /wday/cxs/{tenant}/{site}{externalPath}`, giving `jobPostingInfo.jobDescription`. `postedOn` is relative ("Posted 3 Days Ago").
+
+## Adding a specialised reader
+
+Most sites don't need one. Write one only when the universal reader can't do well.
+
+1. Add `src/ihaveajob/collectors/<site>.py` with a `Collector` subclass: `name`, `detect(url)`, and `fetch(source, client, ctx)` returning a `FetchResult`.
+2. Set `complete=True` only when every open job was returned. On unexpected structure, raise `FetchError("parse_error", …)`. Never return an empty list for a page you couldn't parse.
+3. Register it in `COLLECTORS` before `GenericPageCollector`, add a synthetic fixture and tests, and document the real format here.

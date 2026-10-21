@@ -46,11 +46,17 @@ def render(url: str, client: HttpClient, *, timeout_ms: int = 45000, settle_ms: 
                 page = context.new_page()
                 page.route("**/*", lambda route: route.abort()
                            if route.request.resource_type in _BLOCKED_TYPES else route.continue_())
-                resp = page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                # Many careers sites never go fully network-idle (analytics beacons),
+                # so load the DOM, then wait for idle only up to a short limit.
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 status = resp.status if resp else None
                 if status is not None and status >= 400:
                     raise FetchError("blocked" if status in (401, 403, 429) else "http_status",
                                      f"HTTP {status} from {url} (headless browser)", url=url, status=status)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                except PlaywrightError:
+                    pass  # still busy: use what has rendered so far
                 page.wait_for_timeout(settle_ms)
                 return page.url, page.content(), page.inner_text("body")
             finally:

@@ -24,7 +24,9 @@ Notable `jobs` columns:
 - `matches_filters`: whether the job currently passes the source's filters.
 - `content_hash`: SHA-256 of normalized tracked fields, used to detect updates.
 
-Planned tables: users, preferences, notification history, saved jobs and application tracking (Phases 2–5), scores and visa evidence (Phase 3). They will be added as new migrations.
+Added in migration 0002: `sources.state` (how a page was last read, last error), `page_snapshots` (visible-text snapshots with added and removed lines for pages without identifiable jobs), `notifications` (each email attempt: status, subject, error, hashed recipient) and `notification_items` (unique per recipient and item, which prevents duplicate emails).
+
+Planned tables: users, preferences, saved jobs and application tracking (Phases 2–5), scores and visa evidence (Phase 3). They will be added as new migrations.
 
 ## Creating a migration
 

@@ -1,24 +1,20 @@
-# Monitored careers pages.
+# Monitored careers pages. ANY public careers page link works.
 #
-# Easiest way to add one: open the company's careers page, search/filter for
-# your field, copy the URL from the address bar, then run
-#   ihaveajob add-source "<url>" [--keywords "sustainability,climate"] [--locations "New York,Remote"]
-# which detects the site type and appends an entry here.
+# Add one by pasting its URL (after searching/filtering the page for your field):
+#   - GitHub: Actions -> "add careers page" -> Run workflow, or
+#   - here: add "- url: <link>" under sources, or
+#   - CLI:  ihaveajob add-source "<url>" [--keywords "climate,data"] [--locations "New York,Remote"]
 #
-# Fields:
-#   key       unique id (lowercase, digits, - and _)
-#   company   display name
-#   adapter   watershed | google_careers | ashby | greenhouse | lever
-#   url       the page to monitor (search filters in the URL are passed to the site)
-#   filters   optional, applied by IhaveaJob after fetching:
-#               keywords_any:     job must mention at least one (title, department or description)
-#               keywords_exclude: drop jobs whose title/department mention any
-#               departments:      department must contain one of these
-#               locations:        a location (or "Remote") must contain one of these
-#   options   adapter-specific (e.g. board / site slug for ATS APIs)
-#   enabled   false pauses monitoring without deleting history
+# Only `url` is required. Optional fields:
+#   name / company  display name (otherwise derived from the URL)
+#   key             unique id (otherwise derived)
+#   adapter         auto | workday | ashby | greenhouse | lever | google_careers | watershed
+#                   (detected from the URL; "auto" = universal reader)
+#   filters         applied by IhaveaJob; only matching jobs are emailed:
+#                     keywords_any, keywords_exclude, departments, locations
+#   enabled         false pauses a page without deleting its history
 #
-# This file is public. Do not put personal information or credentials here.
+# This file is public. Don't put personal information or credentials here.
 
 sources:
   - key: watershed

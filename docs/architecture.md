@@ -28,7 +28,10 @@ GitHub Actions (cron / manual) ──► cli `run` ──► services.monitor.ru
 | Path | Responsibility |
 |---|---|
 | `src/ihaveajob/models.py` | Plain dataclasses shared across layers (`SourceConfig`, `SourceFilters`, `NormalizedJob`, `FetchResult`) |
-| `src/ihaveajob/collectors/` | One module per site or API, plus the registry and URL detection. Collectors never touch the database. |
+| `src/ihaveajob/collectors/` | Specialised readers (Workday, Ashby, Greenhouse, Lever, Google, Watershed), the universal `generic.py` reader for any link, shared JSON-LD parsing, and the registry with URL detection. Collectors never touch the database. |
+| `src/ihaveajob/rendering.py` | Optional headless Chromium (Playwright) for JavaScript-built pages |
+| `src/ihaveajob/notifications/` | Email delivery (SMTP) and the change digest (text and HTML, escaped) |
+| `src/ihaveajob/services/notify.py` | Per-recipient digests: start marker, dedup, retry on failure, health alerts |
 | `src/ihaveajob/http.py`, `robots.py` | Polite HTTP and an RFC 9309 robots.txt matcher (wildcards supported) |
 | `src/ihaveajob/normalization/` | HTML to text (scripts stripped), canonical URLs, date parsing, content hashing |
 | `src/ihaveajob/filters.py` | Applies your keyword/department/location filters |
@@ -37,12 +40,14 @@ GitHub Actions (cron / manual) ──► cli `run` ──► services.monitor.ru
 | `src/ihaveajob/cli.py` | `ihaveajob` command |
 | `tests/` | Unit tests with synthetic fixtures. No network. |
 
-Planned packages: `scoring/` and `visa/` (Phase 3), `notifications/` (Phase 2), `auth/` (Phase 5), and `dashboard/` (Phase 4).
+Planned packages: `scoring/` and `visa/` (Phase 3), `dashboard/` (Phase 4) and `auth/` (Phase 5).
 
 ## Key decisions
 
 - **Presence is tracked for every fetched job, not just matching ones.** Otherwise a job whose description loads one run later would look "new", and a job that stops matching your filter would look "closed".
 - **`complete` is the collector's promise.** Closure detection trusts only complete fetches. Capped sources (Google page 1) report `complete=False` when more matches exist.
 - **Publish time vs detection time.** `published_at` (plus `published_at_source` and `published_at_precision`) is what the employer says. `first_detected_at` is when we first saw the job. They are never mixed.
+- **Reading method changes rebuild the baseline.** If a page switches between, say, job links and an embedded Workday feed, the job IDs change too. The baseline is rebuilt quietly, so you don't get a burst of "new" and "removed" emails.
+- **Page summaries aren't change-tracked.** Card text like "Posted 3 hours ago" changes constantly, so it's stored for emails and filters but excluded from update detection.
 - **Untrusted content.** Job descriptions are external input. They are converted to text with scripts removed, stored as data, and never executed or interpreted as instructions. Future AI features must keep them in the data channel of any prompt.
 - **Public vs private data.** Phase 1 stores only public job data. User preferences, notification history and application tracking (later phases) will live in separate tables and require a private database (see `docs/scheduling.md`).

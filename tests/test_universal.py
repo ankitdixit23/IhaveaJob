@@ -159,6 +159,18 @@ def test_workday_paginates_and_reads_details():
     assert result.jobs[0].external_id == "R10000"
 
 
+def test_workday_total_only_on_first_page():
+    # Live behaviour (NVIDIA, 2026-10-21): later pages report total=0.
+    def endpoint(body):
+        page = wd_page(34, body["offset"], 20 if body["offset"] == 0 else 14)
+        if body["offset"]:
+            page["total"] = 0
+        return page
+    result = WorkdayCollector().fetch(wd_source(), FakeClient({WD + "/jobs": endpoint}),
+                                      CollectContext(max_detail_fetches=0))
+    assert len(result.jobs) == 34 and result.total_reported == 34 and result.complete
+
+
 def test_workday_page_cap_marks_incomplete():
     routes = {WD + "/jobs": lambda body: wd_page(500, body["offset"], 20)}
     result = WorkdayCollector().fetch(wd_source(max_pages=2), FakeClient(routes), CollectContext(max_detail_fetches=0))

@@ -153,13 +153,16 @@ class WorkdayCollector(Collector):
         client.ensure_allowed(api + "/jobs")
         max_pages = int(source.options.get("max_pages", 10))
         jobs: list[NormalizedJob] = []
-        total = None
+        total: int | None = None
         for page in range(max_pages):
             body = {"appliedFacets": source.options.get("facets") or {}, "limit": 20, "offset": page * 20,
                     "searchText": source.options.get("search_text") or ""}
-            page_jobs, total = self.parse_page(client.post_json(api + "/jobs", body), source, now)
+            page_jobs, page_total = self.parse_page(client.post_json(api + "/jobs", body), source, now)
+            # Verified live: Workday reports the real total on the first page and 0 on later pages.
+            if page == 0 or (page_total and not total):
+                total = page_total
             jobs.extend(page_jobs)
-            if not page_jobs or (total is not None and len(jobs) >= total):
+            if len(page_jobs) < 20 or (total and len(jobs) >= total):
                 break
         notes = []
         for job in jobs:
@@ -170,6 +173,8 @@ class WorkdayCollector(Collector):
                 self.apply_detail(job, client.get_json(api + job.extra["path"]))
             except FetchError as exc:
                 notes.append(f"detail failed for {job.external_id}: {exc.kind}")
+        seen: set[str] = set()
+        jobs = [j for j in jobs if not (j.external_id in seen or seen.add(j.external_id))]
         complete = total is not None and len(jobs) >= total
         if not complete:
             notes.append(f"Read {len(jobs)} of {total} jobs (page cap); closure detection disabled. "

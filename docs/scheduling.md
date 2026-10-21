@@ -1,6 +1,13 @@
 # Scheduling with GitHub Actions
 
-`.github/workflows/monitor.yml` runs `ihaveajob run` at minutes 7 and 37 of every hour, and on demand via **Actions → monitor → Run workflow** (optionally for one source key). It runs on GitHub's servers, so your computer can be off.
+`.github/workflows/monitor.yml` runs every hour at minute 7, and on demand via **Actions → monitor → Run workflow**. Each run:
+
+1. restores the database;
+2. checks every page (`ihaveajob run`), using a headless browser where needed;
+3. emails what changed (`ihaveajob notify`), if email secrets are set;
+4. saves the database.
+
+It runs on GitHub's servers, so your computer can be off.
 
 ## Where history is stored
 
@@ -15,11 +22,11 @@ To switch to Postgres: create a database, then add the secret under **Settings �
 
 ## Limits to know
 
-- **Cost.** GitHub-hosted standard runners are free for public repositories. A *private* repository on the Free plan gets 2,000 minutes per month. Each run is billed as at least one minute, and two runs per hour comes to about 1,440 minutes per month before tests. If you make the repo private, reduce the schedule (for example `7 * * * *`, hourly).
-- **Delays.** GitHub runs schedules on a best-effort basis. Runs can start late or be dropped when GitHub is busy, especially at the top of the hour. That's why the cron uses minutes 7 and 37. Don't rely on exact timing.
+- **Cost.** GitHub-hosted standard runners are free for public repositories. A *private* repository on the Free plan gets 2,000 minutes per month. An hourly run with the headless browser takes roughly 2–4 minutes, so it would exceed that in a private repo. Keep the repo public, or reduce the schedule (for example `7 */3 * * *`).
+- **Delays.** GitHub runs schedules on a best-effort basis. Runs can start late or be dropped when GitHub is busy, especially at the top of the hour, which is why the cron uses minute 7. "Hourly" means roughly hourly.
 - **Auto-disable.** In public repositories, scheduled workflows are disabled after **60 days with no repository activity**. GitHub emails you, and you can re-enable it from the Actions tab with one click. Pushing any commit also counts as activity.
 - **Overlap.** `concurrency: monitor` makes runs queue instead of overlapping, which would corrupt the SQLite file.
-- **Request budget per run.** Watershed costs 1 listing page plus at most 25 job pages (only new or stale jobs, so usually just 1 request). Google costs 1 request per search URL, plus one robots.txt fetch per site per run. Each host gets at least 1 second between requests.
+- **Request budget per run.** For each page: robots.txt, the page itself, sometimes one followed "openings" link or one headless-browser load, plus at most 25 job pages (only for new jobs, or for details older than a day). Each host gets at least 1 second between requests. Images, fonts and media are not loaded by the headless browser.
 
 ## Health and failures
 
