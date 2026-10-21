@@ -95,6 +95,20 @@ def test_updates_are_recorded_with_field_diff(sessions, settings, clock):
     assert "old_len" in change.changed_fields["description_text"]
 
 
+def test_first_time_enrichment_is_not_an_update(sessions, settings, clock):
+    # Regression from the first live run: Watershed descriptions deferred by
+    # the per-run cap were logged as "updated" when they loaded later.
+    h = Harness(sessions, settings, clock)
+    h.run({"jobs": [ashby_job(1, descriptionPlain=None, department=None)]})
+    clock.advance(hours=1)
+    summary = h.run({"jobs": [ashby_job(1)]})
+    assert summary.sources[0].updated == 0 and not h.changes("updated")
+    assert h.jobs()["job-1"].description_text  # but the data is stored
+    clock.advance(hours=1)
+    summary = h.run({"jobs": [ashby_job(1, descriptionPlain="Real change.")]})
+    assert summary.sources[0].updated == 1  # later real edits still count
+
+
 def test_failed_fetch_changes_nothing_and_counts_failures(sessions, settings, clock):
     h = Harness(sessions, settings, clock)
     h.run({"jobs": [ashby_job(1), ashby_job(2)]})

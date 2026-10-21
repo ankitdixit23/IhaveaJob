@@ -38,7 +38,7 @@ ihaveajob add-source "https://watershed.com/careers" --keywords "data,climate" -
 ihaveajob run        # one monitoring pass (first run per source = baseline)
 ihaveajob status     # per-source health and counts
 ihaveajob changes --hours 24   # recent new/updated/closed jobs that match your filters
-pytest               # 75 tests, no network needed
+pytest               # 76 tests, no network needed
 ```
 
 By default the database is a local SQLite file at `data/ihaveajob.db`. Set `DATABASE_URL` to use Postgres.

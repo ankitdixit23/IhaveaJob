@@ -122,6 +122,10 @@ def _short(value: object) -> object:
 def _diff(old: dict[str, object], new: dict[str, object]) -> dict[str, dict[str, object]]:
     out = {}
     for name in TRACKED_FIELDS:
+        if not normalize_for_hash(old.get(name)):
+            # First time we learn this field (e.g. a description loaded on a
+            # later run): enrichment, not a change to the posting.
+            continue
         if normalize_for_hash(old.get(name)) != normalize_for_hash(new.get(name)):
             if name == "description_text":
                 out[name] = {"old_len": len(old.get(name) or ""), "new_len": len(new.get(name) or "")}
