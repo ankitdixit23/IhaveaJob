@@ -16,7 +16,7 @@ An open-source, AI-powered job intelligence platform that monitors company caree
 
 Pages that block automated access, need a login, or whose robots.txt forbids reading are reported as such. They're never silently skipped, and the protections are never worked around.
 
-**Verified live (2026-10-21):** Watershed, Google, Microsoft, Meta, Apple, NVIDIA (Workday), RMI (Workday found on its site), WRI (followed "Job Openings"). Tesla is correctly reported as blocked. See [docs/sources.md](docs/sources.md#verified-on-2026-10-21-from-githubs-servers).
+**Verified live (2026-10-21):** Watershed, Google, Microsoft, Meta, Apple, Amazon, NVIDIA (Workday), RMI (Workday found on its site), WRI (followed "Job Openings"). Tesla is correctly reported as blocked. See [docs/sources.md](docs/sources.md#verified-on-2026-10-21-from-githubs-servers).
 
 ## Get it running (about 10 minutes, $0)
 

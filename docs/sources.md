@@ -70,11 +70,12 @@ The reader never works around a site's protections, and it reports the reason in
 | nvidia.wd5.myworkdayjobs.com/…?q=climate | Workday feed | 34 jobs with details |
 | rmi.org/about/careers | discovered Workday board | 2 jobs with details |
 | wri.org/careers | followed "Job Openings" → job links | 18 jobs |
-| amazon.jobs/en/search?base_query=sustainability | headless browser (wait strategy fixed after this test) | re-verify |
+| amazon.jobs/en/search?base_query=sustainability | headless browser → job links | 10 jobs (after fixing the browser wait; the first attempt timed out) |
+| apply.careers.microsoft.com/careers?query=sustainability | headless browser → job links | 19 jobs; search kept, but results are broad, so add keyword filters |
 | tesla.com/careers/search | — | `blocked` (403) |
 | edf.org/jobs | — | `not_found` (404) |
 
-\* Microsoft's old search URL redirects to its new careers site and **drops the search term**. Paste a search URL from the new site (`apply.careers.microsoft.com`) instead.
+\* Microsoft's old search URL redirects to its new careers site and **drops the search term**. Use a search URL from the new site (`apply.careers.microsoft.com/careers?query=…`) and add `keywords` filters.
 
 ## Tips
 
