@@ -1,0 +1,34 @@
+# Monitored careers pages.
+#
+# Easiest way to add one: open the company's careers page, search/filter for
+# your field, copy the URL from the address bar, then run
+#   ihaveajob add-source "<url>" [--keywords "sustainability,climate"] [--locations "New York,Remote"]
+# which detects the site type and appends an entry here.
+#
+# Fields:
+#   key       unique id (lowercase, digits, - and _)
+#   company   display name
+#   adapter   watershed | google_careers | ashby | greenhouse | lever
+#   url       the page to monitor (search filters in the URL are passed to the site)
+#   filters   optional, applied by IhaveaJob after fetching:
+#               keywords_any:     job must mention at least one (title, department or description)
+#               keywords_exclude: drop jobs whose title/department mention any
+#               departments:      department must contain one of these
+#               locations:        a location (or "Remote") must contain one of these
+#   options   adapter-specific (e.g. board / site slug for ATS APIs)
+#   enabled   false pauses monitoring without deleting history
+#
+# This file is public. Do not put personal information or credentials here.
+
+sources:
+  - key: watershed
+    company: Watershed
+    adapter: watershed
+    url: https://watershed.com/careers
+    enabled: true
+
+  - key: google-sustainability
+    company: Google
+    adapter: google_careers
+    url: https://www.google.com/about/careers/applications/jobs/results?q=sustainability
+    enabled: true

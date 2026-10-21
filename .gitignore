@@ -1,0 +1,44 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+service-account*.json
+token*.json
+
+# Local data (databases, exports, resumes): never commit
+data/
+exports/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.xlsx
+*.csv
+!tests/fixtures/**
+resumes/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Debug captures of live pages (don't commit third-party page dumps)
+probe_samples/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

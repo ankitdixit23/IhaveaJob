@@ -1,0 +1,102 @@
+name: monitor
+
+on:
+  schedule:
+    # Every 30 minutes, offset from :00/:30 when GitHub's scheduler is busiest.
+    # GitHub may delay or skip scheduled runs under load; see docs/scheduling.md.
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Only run this source key (blank = all enabled sources)"
+        required: false
+        default: ""
+
+# Never run two monitors at once (they would race on the stored database).
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # only used to save the SQLite database to the `data` branch
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Set the DATABASE_URL repository secret (e.g. a free Postgres database)
+      # to store history there. Without it, a SQLite file containing ONLY public
+      # job data is kept on the `data` branch of this repository.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      IHAVEAJOB_LOG_FORMAT: json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install ".[postgres]"
+
+      - name: Restore SQLite database from the data branch
+        if: env.DATABASE_URL == ''
+        run: |
+          mkdir -p data
+          if git fetch --depth=1 origin data:refs/remotes/origin/data 2>/dev/null && git cat-file -e origin/data:ihaveajob.db 2>/dev/null; then
+            git show origin/data:ihaveajob.db > data/ihaveajob.db
+            echo "Restored database ($(du -h data/ihaveajob.db | cut -f1))"
+          else
+            echo "No data branch yet: starting a new database (first run builds baselines)."
+          fi
+
+      - name: Run monitor
+        id: run
+        env:
+          ONLY_SOURCE: ${{ inputs.source }}  # passed via env, never interpolated into the script
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set +e
+          if [ -n "$ONLY_SOURCE" ]; then
+            ihaveajob run --trigger "$TRIGGER" --source "$ONLY_SOURCE" > run.txt
+          else
+            ihaveajob run --trigger "$TRIGGER" > run.txt
+          fi
+          code=$?
+          cat run.txt
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Monitor run"
+            echo '```'
+            cat run.txt
+            echo '```'
+            ihaveajob --log-format text changes --hours 1 --types new,updated,closed,reopened || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save SQLite database to the data branch
+        # Runs even when the monitor reported failures, so partial progress and
+        # failure counters are kept. Skipped if the run crashed before writing.
+        if: always() && env.DATABASE_URL == '' && hashFiles('data/ihaveajob.db') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          store="$RUNNER_TEMP/data-store"
+          mkdir -p "$store" && cp data/ihaveajob.db "$store/" && cd "$store"
+          printf '%s\n' "# data branch" "Auto-generated SQLite database of PUBLIC job postings, written by the monitor workflow." \
+            "Force-pushed as a single commit each run so history does not grow. Never store private data here." > README.md
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ihaveajob.db README.md
+          git commit -q -m "Update job database (run ${{ github.run_id }})"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" data:data
+          echo "Saved database to the data branch."
+
+      - name: Fail if a source keeps failing
+        if: steps.run.outputs.code != '0'
+        run: |
+          echo "::error::Monitor exit code ${{ steps.run.outputs.code }}. 2 = a source failed 3+ runs in a row (check the log above); 1 = configuration/database error."
+          exit 1
