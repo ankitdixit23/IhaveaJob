@@ -1,12 +1,12 @@
 # Web app: manage your careers pages
 
-`dashboard/app.py` is a small Streamlit app. At the top, one line sums up what's new since yesterday. It has three tabs:
+`dashboard/app.py` is a small Streamlit app with three tabs:
 
 1. **Add a page** (the main tab). Paste any careers link, optionally add keywords, locations or exclusions, and **Preview** what it finds before adding.
 2. **Jobs.** Every job on watch, grouped by company with counts. You can search by title, location or team, filter companies, or show only new jobs.
 3. **My pages.** Each page shows its status, job count, last check and how it's read. **Edit** changes its name, link or filters; **Pause**/**Resume** and **Remove** are next to it.
 
-The sidebar has **Check now**, to check every page without waiting for the hourly run.
+The sidebar has **Check now**, to check every page without waiting for the hourly run, and shows when the last check happened.
 
 The app doesn't monitor anything itself. It edits `config/companies.yaml` in your GitHub repository, and the hourly GitHub workflow does the checking and emailing. The app reads results from the same database.
 

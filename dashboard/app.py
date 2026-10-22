@@ -56,7 +56,7 @@ st.set_page_config(page_title="IhaveaJob", layout="wide")
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');
-:root { --accent:#12372A; --ink:#1B2420; --muted:#5F6B66; --line:#E3E8E5; --soft:#F6F8F7; --new:#B26A00; }
+:root { --accent:#1E3A5F; --ink:#111827; --muted:#6B7280; --line:#E5E7EB; --soft:#F9FAFB; --new:#1D4ED8; }
 html, body, .stApp, .stMarkdown p, .stMarkdown li, label, input, textarea, button p, h1, h2, h3,
 [data-testid="stCaptionContainer"] { font-family:'Public Sans', system-ui, -apple-system, sans-serif; }
 .block-container { max-width: 960px; padding-top: 3.5rem; }
@@ -240,7 +240,7 @@ def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
         n = len(fresh)
         headline = f"{n} new job{'s' if n != 1 else ''} since yesterday at {join_names([a['company'] for a in fresh])}."
     elif watching:
-        headline = "No new jobs since yesterday."
+        headline = ""
     else:
         headline = "Add a careers page to get started."
     if watching:
@@ -248,8 +248,8 @@ def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
                "Pages are checked every hour, and you're emailed when something changes.")
     else:
         sub = "Paste any company's careers link. It's checked every hour, and you're emailed when something changes."
-    st.markdown(f'<div class="hj-headline">{e(headline)}</div><div class="hj-sub">{e(sub)}</div>',
-                unsafe_allow_html=True)
+    head = f'<div class="hj-headline">{e(headline)}</div>' if headline else ""
+    st.markdown(f'{head}<div class="hj-sub">{e(sub)}</div>', unsafe_allow_html=True)
 
 
 def jobs_tab(jobs: list[dict]) -> None:
@@ -290,48 +290,37 @@ def jobs_tab(jobs: list[dict]) -> None:
 
 
 def add_tab(store: Store) -> None:
-    left, right = st.columns([1.15, 1], gap="large")
-    with left:
-        st.markdown("### Add a careers page")
-        st.write("Open the company's careers page, search or filter it for your field, and copy the link from the "
-                 "address bar. Any company works.")
-        with st.form("add"):
-            url = st.text_input("Careers page link", placeholder="https://company.com/careers?q=climate",
-                                key="add_url")
-            company = st.text_input("Company name", placeholder="Optional: worked out from the link",
-                                    key="add_company")
-            with st.expander("Only tell me about some jobs"):
-                keywords = st.text_input("Keywords", placeholder="climate, sustainability, data", key="add_keywords",
-                                         help="Only jobs mentioning at least one of these.")
-                locations = st.text_input("Locations", placeholder="New York, Remote", key="add_locations")
-                exclude = st.text_input("Skip jobs mentioning", placeholder="intern, sales", key="add_exclude")
-            b1, b2 = st.columns(2)
-            do_preview = b1.form_submit_button("Preview", width="stretch")
-            do_add = b2.form_submit_button("Add page", type="primary", width="stretch")
-    with right:
-        if not (do_preview or do_add):
-            st.markdown("### What happens next")
-            st.markdown("- **Preview** shows the jobs IhaveaJob can read on that page.\n"
-                        "- **Add page** starts watching it. The first check quietly records today's jobs.\n"
-                        "- After that, every new, changed or removed job is emailed to you within the hour.")
+    st.markdown("### Add a careers page")
+    st.caption("Open the company's careers page, search or filter it for your field, and copy the link from the "
+               "address bar. Any company works.")
+    with st.form("add"):
+        url = st.text_input("Careers page link", placeholder="https://company.com/careers?q=climate", key="add_url")
+        company = st.text_input("Company name", placeholder="Optional: worked out from the link", key="add_company")
+        with st.expander("Only tell me about some jobs"):
+            keywords = st.text_input("Keywords", placeholder="climate, sustainability, data", key="add_keywords",
+                                     help="Only jobs mentioning at least one of these.")
+            locations = st.text_input("Locations", placeholder="New York, Remote", key="add_locations")
+            exclude = st.text_input("Skip jobs mentioning", placeholder="intern, sales", key="add_exclude")
+        b1, b2, _ = st.columns([1, 1, 3])
+        do_preview = b1.form_submit_button("Preview", width="stretch")
+        do_add = b2.form_submit_button("Add page", type="primary", width="stretch")
+    if not (do_preview or do_add):
+        return
+    if not url.strip():
+        st.warning("Paste a careers page link first.")
+        return
+    try:
+        if do_preview:
+            with st.spinner("Reading the page…"):
+                show_preview(preview(url.strip(), company, keywords, locations, exclude))
             return
-        if not url.strip():
-            st.warning("Paste a careers page link first.")
-            return
-        try:
-            if do_preview:
-                with st.spinner("Reading the page…"):
-                    show_preview(preview(url.strip(), company, keywords, locations, exclude))
-                return
-            source, _ = build_source(url.strip(), company=company or None,
-                                     filters=_filters(keywords, locations, exclude))
-            text, sha = store.read_config()
-            store.save_config(add_source_text(text, source), sha, f"Add careers page: {source.company}")
-            st.success(f"Now watching **{source.company}**. The next check records its current jobs; from then on "
-                       "you'll be emailed about every change.")
-            st.session_state["just_added"] = True
-        except (UnsupportedUrl, ConfigError, GitHubError) as exc:
-            st.error(str(exc))
+        source, _ = build_source(url.strip(), company=company or None, filters=_filters(keywords, locations, exclude))
+        text, sha = store.read_config()
+        store.save_config(add_source_text(text, source), sha, f"Add careers page: {source.company}")
+        st.success(f"Now watching **{source.company}**. The next check records its current jobs; from then on "
+                   "you'll be emailed about every change.")
+    except (UnsupportedUrl, ConfigError, GitHubError) as exc:
+        st.error(str(exc))
 
 
 def show_preview(p: dict) -> None:
@@ -364,7 +353,7 @@ def pages_tab(store: Store, text: str, sha: str | None, sources, status) -> None
             left, right = st.columns([4, 1.3])
             with left:
                 state = "Paused" if not src.enabled else ("Needs attention" if failing else "Active")
-                color = {"Paused": "#5F6B66", "Needs attention": "#A23B2A", "Active": "#12372A"}[state]
+                color = {"Paused": "#6B7280", "Needs attention": "#B91C1C", "Active": "#047857"}[state]
                 st.markdown(f'**{e(src.company)}** &nbsp; <small style="color:{color};font-weight:600">{state}</small>',
                             unsafe_allow_html=True)
                 st.markdown(f"[{e(src.url)}]({src.url})")
@@ -452,36 +441,17 @@ def _edit(store: Store, text: str, sha: str | None, key: str, action: str, compa
         st.error(str(exc))
 
 
-def sidebar(store: Store) -> None:
+def sidebar(store: Store, status: dict) -> None:
+    last = max((v["last_checked"] for v in status.values() if v["last_checked"]), default=None)
     with st.sidebar:
         st.markdown("### Checks")
-        st.caption("Every page is checked automatically once an hour on GitHub's servers.")
-        if st.button("Check now", width="stretch", disabled=not store.remote,
-                     type="primary" if st.session_state.get("just_added") else "secondary"):
+        if st.button("Check now", type="primary", width="stretch", disabled=not store.remote):
             try:
                 store.run_now()
-                st.success("Check started. Results appear in a few minutes, and you'll get an email if anything "
-                           "changed.")
-                st.session_state["just_added"] = False
+                st.success("Check started. Results appear in a few minutes.")
             except GitHubError as exc:
                 st.error(str(exc))
-        if store.remote:
-            try:
-                runs = store.github.recent_runs("monitor.yml", 4)
-            except GitHubError:
-                runs = []
-            if runs:
-                st.caption("Recent checks")
-            for r in runs:
-                label = {"success": "Completed", "failure": "Failed", None: "Running"}.get(r["conclusion"], "Finished")
-                when = ago(datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")))
-                st.caption(f"[{when}]({r['url']}): {label}")
-        else:
-            st.caption("Local mode: changes save to config/companies.yaml on this computer.")
-        if st.button("Refresh", width="stretch"):
-            load_database.clear()
-            preview.clear()
-            st.rerun()
+        st.caption(f"Last checked: {ago(last)}")
 
 
 def main() -> None:
@@ -503,7 +473,7 @@ def main() -> None:
     if sessions is not None:
         with sessions() as session:
             status, jobs, activity = source_status(session), list_jobs(session), daily_activity(session, 31)
-    sidebar(store)
+    sidebar(store, status)
     hero(sources, jobs, activity)
     t_add, t_jobs, t_pages = st.tabs(["Add a page", f"Jobs ({len(jobs)})", f"My pages ({len(sources)})"])
     with t_add:
