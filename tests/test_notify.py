@@ -147,3 +147,14 @@ def test_no_email_addresses_are_stored(sessions, settings, clock):
     with sessions() as s:
         for note in s.scalars(select(Notification)):
             assert ME not in (note.recipient_key + (note.subject or ""))
+
+
+def test_sample_email_uses_real_jobs_and_records_nothing(sessions, settings, clock):
+    from ihaveajob.services.notify import build_sample
+    h = Harness(sessions, settings, clock)
+    h.run({"jobs": [ashby_job(1), ashby_job(2)]})
+    with sessions() as s:
+        digest = build_sample(s, clock.now)
+    assert digest.subject.startswith("[SAMPLE]") and "Climate Analyst 1" in digest.text and "SAMPLE" in digest.html
+    with sessions() as s:
+        assert not list(s.scalars(select(NotificationItem))) and not list(s.scalars(select(Notification)))

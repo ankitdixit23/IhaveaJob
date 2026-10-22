@@ -171,3 +171,25 @@ def send_digests(
             outcomes.append(NotifyOutcome(address, "sent", count, digest.subject))
             log.info("notify_sent", extra={"items": count, "subject": digest.subject})
     return outcomes
+
+
+SAMPLE_BANNER = ("SAMPLE EMAIL: real jobs currently tracked, shown as if they were new, so you can see the format. "
+                 "Nothing was recorded; real alerts only include actual changes.")
+
+
+def build_sample(session: Session, now: datetime, limit: int = 5):
+    """A digest of the most recently posted tracked jobs, presented as 'new'. Nothing is persisted."""
+    rows = session.execute(
+        select(Job, Source).join(Source, Job.source_id == Source.id)
+        .where(Job.status != "closed", Job.matches_filters.is_(True), Source.enabled.is_(True))
+        .order_by(Job.published_at.desc().nullslast(), Job.id.desc()).limit(limit)).all()
+    if not rows:
+        return None
+    changes = [(JobChange(id=None, job_id=j.id, change_type="new", changed_fields={}, detected_at=now), j, s)
+               for j, s in rows]
+    digest = build_digest(changes, [], [], now)
+    digest.subject = "[SAMPLE] " + digest.subject
+    digest.text = SAMPLE_BANNER + "\n\n" + digest.text
+    digest.html = (f'<p style="font-family:sans-serif;background:#fff4e5;border:1px solid #f5c26b;padding:10px;'
+                   f'border-radius:6px;font-size:13px">{SAMPLE_BANNER}</p>') + digest.html
+    return digest

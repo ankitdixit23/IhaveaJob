@@ -1,0 +1,39 @@
+name: send sample email
+
+# Sends a sample digest (real tracked jobs shown as "new", clearly marked SAMPLE)
+# to ALERT_EMAIL_TO. Read-only: the job database is not saved back.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      IHAVEAJOB_TIMEZONE: ${{ vars.IHAVEAJOB_TIMEZONE || 'UTC' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install ".[postgres]"
+      - name: Load the job database
+        if: env.DATABASE_URL == ''
+        run: |
+          mkdir -p data
+          git fetch --depth=1 origin data:refs/remotes/origin/data && git show origin/data:ihaveajob.db > data/ihaveajob.db
+      - name: Send sample email
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: ihaveajob sample-email

@@ -198,6 +198,33 @@ def cmd_notify(args: argparse.Namespace) -> int:
     return 3 if failed else 0
 
 
+def cmd_sample_email(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+
+    from .services.notify import build_sample
+
+    with _sessions(Settings.from_env())() as session:
+        digest = build_sample(session, datetime.now(timezone.utc), limit=args.limit)
+    if digest is None:
+        print("No tracked jobs yet: run the monitor first.")
+        return 1
+    if args.dry_run:
+        print(f"Subject: {digest.subject}\n\n{digest.text}")
+        return 0
+    try:
+        email = EmailSettings.from_env()
+        if email is None:
+            print("error: email is not configured (SMTP_HOST, ALERT_EMAIL_TO, ...)", file=sys.stderr)
+            return 1
+        for to in email.recipients:
+            SmtpEmailNotifier(email).send(to, digest.subject, digest.text, digest.html)
+    except NotificationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Sample email sent to {len(email.recipients)} recipient(s).")
+    return 0
+
+
 def cmd_test_email(args: argparse.Namespace) -> int:
     try:
         email = EmailSettings.from_env()
@@ -256,6 +283,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_notify)
 
     s = sub.add_parser("test-email", help="send a test email using the SMTP settings"); s.set_defaults(func=cmd_test_email)
+
+    s = sub.add_parser("sample-email", help="send a sample digest built from currently tracked jobs (records nothing)")
+    s.add_argument("--limit", type=int, default=5); s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(func=cmd_sample_email)
 
     s = sub.add_parser("db-upgrade", help="apply database migrations"); s.set_defaults(func=cmd_db_upgrade)
     return p
