@@ -21,7 +21,7 @@ sources:
     company: Watershed
     adapter: watershed
     url: https://watershed.com/careers
-    enabled: false
+    enabled: true
   - key: google-sustainability
     company: Google
     adapter: google_careers
