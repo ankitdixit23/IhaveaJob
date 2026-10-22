@@ -98,7 +98,9 @@ class HttpClient:
                 if exc.status and 400 <= exc.status < 500:
                     self._robots[origin] = None
                 else:
-                    raise FetchError("robots_disallowed", f"robots.txt unavailable for {origin}: {exc}", url=url) from exc
+                    # Can't confirm we're allowed: don't fetch, and report why (unreachable, not "forbidden").
+                    raise FetchError(exc.kind, f"Couldn't read robots.txt for {origin}: {exc}", url=url,
+                                     status=exc.status) from exc
         policy = self._robots[origin]
         if policy is not None and not policy.is_allowed(url, self.user_agent):
             raise FetchError("robots_disallowed", f"robots.txt disallows {url}", url=url)

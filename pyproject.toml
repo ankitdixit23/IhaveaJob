@@ -20,7 +20,8 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
 render = ["playwright>=1.45"]  # headless browser for JavaScript-built careers pages
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "streamlit>=1.40", "pandas>=2.0"]
+dashboard = ["streamlit>=1.40", "pandas>=2.0"]
 
 [project.scripts]
 ihaveajob = "ihaveajob.cli:main"

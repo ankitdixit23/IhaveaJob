@@ -16,7 +16,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from .collectors import CollectContext, UnsupportedUrl, detect_source, get_collector
-from .config import DEFAULT_CONFIG_PATH, ConfigError, Settings, append_source, default_key, load_sources
+from .config import DEFAULT_CONFIG_PATH, ConfigError, Settings, append_source, build_source, load_sources
 from .database import make_engine, session_factory, upgrade
 from .database.models import Job, JobChange, Source, SourceRun
 from .filters import matches
@@ -55,12 +55,7 @@ def _sessions(settings: Settings):
 
 
 def _source_from_url(args: argparse.Namespace) -> tuple[SourceConfig, list[str]]:
-    det = detect_source(args.url)
-    company = args.company or det.company_hint or "Company"
-    filters = _filters_from_args(args, det.filters)
-    key = args.key or default_key(company, args.url)
-    return SourceConfig(key=key, company=company, adapter=det.adapter, url=det.url, filters=filters,
-                        options=det.options), det.notes
+    return build_source(args.url, company=args.company, key=args.key, filters=_filters_from_args(args))
 
 
 def cmd_check_source(args: argparse.Namespace) -> int:

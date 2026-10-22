@@ -1,0 +1,10 @@
+# Streamlit Community Cloud installs this file for dashboard/app.py.
+# The app imports the ihaveajob package directly from ../src.
+streamlit>=1.40
+pandas>=2.0
+requests>=2.31
+beautifulsoup4>=4.12
+PyYAML>=6.0
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1

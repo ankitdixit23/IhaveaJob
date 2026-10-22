@@ -2,11 +2,11 @@
 
 An open-source, AI-powered job intelligence platform that monitors company career pages, discovers opportunities, evaluates career relevance and visa sponsorship, and delivers personalized email alerts through an interactive dashboard.
 
-> **Status:** monitoring any careers page, change detection, history, hourly scheduling and **email alerts** work today. Relevance scoring, visa analysis, the dashboard and multi-user accounts are planned (see [Roadmap](#roadmap)). Nothing below describes a feature that isn't implemented.
+> **Status:** monitoring any careers page, change detection, history, hourly scheduling, **email alerts** and a **web app for managing pages** work today. Relevance scoring, visa analysis, saved jobs, exports and multi-user accounts are planned (see [Roadmap](#roadmap)). Nothing below describes a feature that isn't implemented.
 
 ## What it does
 
-1. **You give it careers-page links, from any company.** Search or filter the page for your field if it has a search box, then paste the URL. There are three ways to add one: a form in GitHub (works from your phone), one line in `config/companies.yaml`, or `ihaveajob add-source "<url>"`.
+1. **You give it careers-page links, from any company.** Search or filter the page for your field if it has a search box, then paste the URL into the **web app** ([docs/dashboard.md](docs/dashboard.md)). You can also use a form in GitHub (works from your phone), add one line to `config/companies.yaml`, or run `ihaveajob add-source "<url>"`.
 2. **Every hour, it checks every page** on GitHub's servers, so your computer can be off. Each link is read the best way available:
    - the company's job-board feed (Workday, Ashby, Greenhouse, Lever), found automatically even when it's hidden behind the company's own site;
    - structured job data or job links on the page;
@@ -37,13 +37,15 @@ ihaveajob add-source "https://www.wri.org/careers" --keywords "data,climate"
 ihaveajob run                     # one pass (first run per page = silent baseline)
 ihaveajob notify --dry-run        # print the email that would be sent
 ihaveajob status                  # per-page health
-pytest                            # 107 tests, no network needed
+pytest                            # 117 tests, no network needed
+streamlit run dashboard/app.py    # the web app (local mode)
 ```
 
 ## Documentation
 
 - [Adding careers pages and how links are read](docs/sources.md)
 - [Email alerts](docs/email.md)
+- [Web app for managing pages](docs/dashboard.md)
 - [Scheduling, storage and limits](docs/scheduling.md)
 - [Architecture](docs/architecture.md) · [Configuration](docs/configuration.md) · [Database](docs/database.md)
 - [Security and privacy](SECURITY.md) · [Contributing](CONTRIBUTING.md)
@@ -55,7 +57,7 @@ pytest                            # 107 tests, no network needed
 | 1 | Sources, collectors, normalization, dedup, history, change detection, scheduled workflow | **Done** |
 | 2 | Universal reader for any careers link; Workday; email digests (hourly, deduplicated) | **Done** (single recipient list via secrets; per-user preferences come with accounts in Phase 5) |
 | 3 | Transparent 0–100 relevance scoring; visa/work-authorization evidence extraction | Planned |
-| 4 | Streamlit dashboard, saved jobs and application pipeline, CSV/Excel export, optional Google Sheets | Planned |
+| 4 | Streamlit dashboard, saved jobs and application pipeline, CSV/Excel export, optional Google Sheets | **Started:** web app for adding and managing pages and viewing recent changes |
 | 5 | Accounts, per-user preferences and data isolation, security review, public-release checklist | Planned |
 
 ## License

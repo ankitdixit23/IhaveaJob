@@ -105,6 +105,14 @@ def test_robots_disallow_blocks_fetch_before_requesting_page():
     assert exc.value.kind == "robots_disallowed" and session.calls == 1
 
 
+def test_unreachable_robots_txt_blocks_fetch_with_the_real_reason():
+    import requests
+    client, session, _ = client_with([requests.ConnectionError("down")] * 3)
+    with pytest.raises(FetchError) as exc:
+        client.get_text("https://x.test/jobs", check_robots=True)
+    assert exc.value.kind == "connection" and session.calls == 3  # never fetched the page itself
+
+
 def test_missing_robots_txt_means_allowed():
     client, _, _ = client_with([_Resp(404), _Resp(200, b"jobs")])
     assert client.get_text("https://x.test/jobs", check_robots=True) == "jobs"

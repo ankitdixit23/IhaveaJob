@@ -51,7 +51,8 @@ def detect_source(url: str) -> UrlDetection:
             return detection
     from .generic import _site
 
-    company = _site(parts.netloc).split(".")[0].replace("-", " ").title()
+    label = _site(parts.netloc).split(".")[0].replace("-", " ")
+    company = label.upper() if len(label) <= 3 else label.title()  # wri -> WRI, microsoft -> Microsoft
     clean = urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
     return UrlDetection(adapter="auto", url=clean, company_hint=company, filters=SourceFilters(),
                         notes=["Using the universal reader: it finds job links, structured job data or an embedded "

@@ -57,7 +57,14 @@ def default_key(company: str, url: str) -> str:
 def load_sources(path: Path = DEFAULT_CONFIG_PATH) -> list[SourceConfig]:
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")
-    data = yaml.safe_load(path.read_text()) or {}
+    return parse_sources(path.read_text(), str(path))
+
+
+def parse_sources(text: str, path: str = "companies.yaml") -> list[SourceConfig]:
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{path}: not valid YAML: {exc}") from exc
     entries = data.get("sources")
     if not isinstance(entries, list):
         raise ConfigError(f"{path}: expected a top-level 'sources:' list")
@@ -110,24 +117,70 @@ def load_sources(path: Path = DEFAULT_CONFIG_PATH) -> list[SourceConfig]:
     return sources
 
 
-def append_source(source: SourceConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
-    """Add a source to the YAML file, keeping existing entries and comments' order."""
-    data = yaml.safe_load(path.read_text()) if path.exists() else None
-    data = data or {"sources": []}
-    if any(s.get("key") == source.key for s in data.get("sources", [])):
-        raise ConfigError(f"A source with key {source.key!r} already exists in {path}")
+def _entry(source: SourceConfig) -> dict:
     entry: dict = {"key": source.key, "company": source.company, "adapter": source.adapter, "url": source.url}
     if not source.filters.is_empty():
         entry["filters"] = source.filters.to_dict()
     if source.options:
         entry["options"] = source.options
     entry["enabled"] = source.enabled
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = path.read_text() if path.exists() else "sources:\n"
+    return entry
+
+
+def add_source_text(text: str, source: SourceConfig) -> str:
+    """Return the YAML text with ``source`` appended (comments and order kept)."""
+    data = (yaml.safe_load(text) if text.strip() else None) or {"sources": []}
+    existing = data.get("sources") or []
+    if any(s.get("key") == source.key for s in existing):
+        raise ConfigError(f"A page with key {source.key!r} already exists")
+    if any(str(s.get("url", "")).rstrip("/") == source.url.rstrip("/") for s in existing):
+        raise ConfigError("This page is already being monitored")
+    text = text if text.strip() else "sources:\n"
     text = re.sub(r"^sources:\s*\[\]\s*$", "sources:", text, flags=re.M)
-    block = yaml.safe_dump([entry], sort_keys=False, allow_unicode=True)
+    block = yaml.safe_dump([_entry(source)], sort_keys=False, allow_unicode=True)
     block = "\n".join("  " + line if line else line for line in block.splitlines())
     if not text.endswith("\n"):
         text += "\n"
-    path.write_text(text + block + "\n")
-    load_sources(path)  # validate the result
+    result = text + block + "\n"
+    parse_sources(result)  # validate
+    return result
+
+
+def edit_sources_text(text: str, edit) -> str:
+    """Apply ``edit(list_of_entry_dicts)`` (which mutates in place) and re-serialise
+    the sources list, keeping the comment header above ``sources:``."""
+    data = yaml.safe_load(text) or {}
+    entries = list(data.get("sources") or [])
+    edit(entries)
+    match = re.search(r"^sources:", text, flags=re.M)
+    header = text[: match.start()] if match else ""
+    if entries:
+        dumped = yaml.safe_dump(entries, sort_keys=False, allow_unicode=True)
+        body = "sources:\n" + "\n".join("  " + line if line else line for line in dumped.splitlines()) + "\n"
+    else:
+        body = "sources: []\n"
+    result = header + body
+    parse_sources(result)
+    return result
+
+
+def append_source(source: SourceConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
+    """Add a source to the YAML file, keeping existing entries and comments' order."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = path.read_text() if path.exists() else ""
+    path.write_text(add_source_text(text, source))
+
+
+def build_source(url: str, *, company: str | None = None, key: str | None = None,
+                 filters: SourceFilters | None = None) -> tuple[SourceConfig, list[str]]:
+    """Turn a pasted careers URL (+ optional name/filters) into a SourceConfig."""
+    from .collectors import detect_source
+
+    det = detect_source(url)
+    merged = SourceFilters.from_dict({**det.filters.to_dict()})
+    if filters:
+        for name in ("keywords_any", "keywords_exclude", "departments", "locations"):
+            getattr(merged, name).extend(v for v in getattr(filters, name) if v not in getattr(merged, name))
+    name = (company or "").strip() or det.company_hint or "Company"
+    return SourceConfig(key=key or default_key(name, url), company=name, adapter=det.adapter, url=det.url,
+                        filters=merged, options=dict(det.options)), list(det.notes)
