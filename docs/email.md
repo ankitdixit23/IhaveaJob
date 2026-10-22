@@ -1,6 +1,6 @@
 # Email alerts
 
-After every hourly run, IhaveaJob sends **one email** summarising what changed since your last email. Nothing is sent when nothing changed.
+After every check (every 2 hours), IhaveaJob sends **one email** summarising what changed since your last email. Nothing is sent when nothing changed.
 
 Each email contains, per company:
 
@@ -35,7 +35,7 @@ Each email contains, per company:
 4. Optional: under **Variables** (not secrets), add `IHAVEAJOB_TIMEZONE` = `America/Los_Angeles` so email times use your time zone.
 5. Run **Actions → monitor → Run workflow**. You should receive the "monitoring started" email within a few minutes.
 
-Gmail limits how much a personal account can send per day. Hourly digests to a few people are far below that, but don't use this to mass-mail.
+Gmail limits how much a personal account can send per day. Digests every 2 hours to a few people are far below that, but don't use this to mass-mail.
 
 Other providers work the same way. Set `SMTP_HOST` and `SMTP_PORT` to the provider's values: port 587 uses STARTTLS, and port 465 uses SSL.
 

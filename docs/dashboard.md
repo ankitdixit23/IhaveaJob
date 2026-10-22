@@ -6,9 +6,9 @@
 2. **Jobs.** Every job on watch, grouped by company with counts. You can search by title, location or team, filter companies, or show only new jobs.
 3. **My pages.** Each page shows its status, job count, last check and how it's read. **Edit** changes its name, link or filters; **Pause**/**Resume** and **Remove** are next to it.
 
-The sidebar has **Check now**, to check every page without waiting for the hourly run, and shows when the last check happened.
+The sidebar has **Check now**, to check every page without waiting for the next scheduled check, and shows when the last check happened.
 
-The app doesn't monitor anything itself. It edits `config/companies.yaml` in your GitHub repository, and the hourly GitHub workflow does the checking and emailing. The app reads results from the same database.
+The app doesn't monitor anything itself. It edits `config/companies.yaml` in your GitHub repository, and the scheduled GitHub workflow (every 2 hours) does the checking and emailing. The app reads results from the same database.
 
 ## Deploy it (free, about 10 minutes)
 

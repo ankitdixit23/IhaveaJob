@@ -90,7 +90,7 @@ def pending(session: Session, key: str, since: datetime):
 
 def _welcome(session: Session, now: datetime) -> tuple[str, str]:
     lines = ["IhaveaJob is now monitoring these careers pages for you. From now on you'll get one email per run",
-             "(hourly) whenever something changes: new jobs, edits (with what changed), and jobs removed from the page.",
+             "(every 2 hours) whenever something changes: new jobs, edits (with what changed), and jobs removed from the page.",
              ""]
     for src in session.scalars(select(Source).where(Source.enabled.is_(True)).order_by(Source.key)):
         open_jobs = session.scalar(select(func.count()).where(Job.source_id == src.id, Job.status != "closed",

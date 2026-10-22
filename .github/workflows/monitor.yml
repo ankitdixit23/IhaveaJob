@@ -2,9 +2,9 @@ name: monitor
 
 on:
   schedule:
-    # Hourly, at minute 7 (GitHub's scheduler is busiest at :00). GitHub may
-    # delay or skip scheduled runs under load; see docs/scheduling.md.
-    - cron: "7 * * * *"
+    # Every 2 hours, at minute 7 (GitHub's scheduler is busiest at :00).
+    # GitHub may delay or skip scheduled runs under load; see docs/scheduling.md.
+    - cron: "7 */2 * * *"
   workflow_dispatch:
     inputs:
       source:

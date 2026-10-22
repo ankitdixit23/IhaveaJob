@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 # Streamlit Cloud has no headless browser; previews read the page HTML. The
-# hourly GitHub run uses a real browser for JavaScript-built pages.
+# scheduled GitHub run uses a real browser for JavaScript-built pages.
 os.environ.setdefault("IHAVEAJOB_DISABLE_RENDER", "1")
 
 import streamlit as st  # noqa: E402
@@ -45,9 +45,9 @@ FETCH_HINTS = {
     "not_found": "This page doesn't exist (404). Open the link in your browser to check it.",
     "blocked": "This site refuses automated visitors (bot protection or a login), so it can't be monitored.",
     "robots_disallowed": "This site's robots.txt forbids automated reading of this page, so it can't be monitored.",
-    "timeout": "The site didn't respond in time. Try again, or add it anyway: the hourly check retries.",
-    "connection": "Couldn't reach the site from here. Check the link, or add it anyway: the hourly check retries.",
-    "http_status": "The site returned an error. Try again later, or add it anyway: the hourly check retries.",
+    "timeout": "The site didn't respond in time. Try again, or add it anyway: the scheduled check retries.",
+    "connection": "Couldn't reach the site from here. Check the link, or add it anyway: the scheduled check retries.",
+    "http_status": "The site returned an error. Try again later, or add it anyway: the scheduled check retries.",
 }
 
 st.set_page_config(page_title="IhaveaJob", layout="wide")
@@ -246,7 +246,7 @@ def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
 def jobs_tab(jobs: list[dict]) -> None:
     if not jobs:
         st.markdown('<div class="hj-empty">No jobs yet. Add a careers page, then press <b>Check now</b> in the '
-                    'sidebar, or wait for the next hourly check.</div>', unsafe_allow_html=True)
+                    'sidebar, or wait for the next scheduled check.</div>', unsafe_allow_html=True)
         return
     c1, c2, c3 = st.columns([2.2, 1.6, 1])
     query = c1.text_input("Search jobs", placeholder="Title, location or team", key="job_search",
@@ -325,7 +325,7 @@ def show_preview(p: dict) -> None:
         st.markdown('<div class="hj-list">' + "".join(job_card(j) for j in p["jobs"]) + "</div>",
                     unsafe_allow_html=True)
     elif p["page_text"] is not None:
-        st.info("No individual jobs in this page's HTML. Many sites build their job list with JavaScript; the hourly "
+        st.info("No individual jobs in this page's HTML. Many sites build their job list with JavaScript; the scheduled "
                 "check opens pages in a real browser and usually finds the jobs there. Either way you'll be told "
                 "when the page changes.")
     for note in p["notes"]:
@@ -353,7 +353,7 @@ def pages_tab(store: Store, text: str, sha: str | None, sources, status) -> None
                     details.append(f"{info['matching']} jobs on watch, checked {ago(info['last_checked'])}, "
                                    f"read via {info['read_via']}.")
                 elif src.enabled:
-                    details.append("Waiting for its first check (hourly, or press Check now).")
+                    details.append("Waiting for its first check (every 2 hours, or press Check now).")
                 f = src.filters.to_dict()
                 if f.get("keywords_any"):
                     details.append("Keywords: " + ", ".join(f["keywords_any"]) + ".")

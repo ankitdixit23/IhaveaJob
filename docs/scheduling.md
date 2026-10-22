@@ -1,6 +1,6 @@
 # Scheduling with GitHub Actions
 
-`.github/workflows/monitor.yml` runs every hour at minute 7, and on demand via **Actions → monitor → Run workflow**. Each run:
+`.github/workflows/monitor.yml` runs every 2 hours at minute 7, and on demand via **Actions → monitor → Run workflow**. Each run:
 
 1. restores the database;
 2. checks every page (`ihaveajob run`), using a headless browser where needed;
@@ -22,8 +22,8 @@ To switch to Postgres: create a database, then add the secret under **Settings �
 
 ## Limits to know
 
-- **Cost.** GitHub-hosted standard runners are free for public repositories. A *private* repository on the Free plan gets 2,000 minutes per month. An hourly run with the headless browser takes roughly 2–4 minutes, so it would exceed that in a private repo. Keep the repo public, or reduce the schedule (for example `7 */3 * * *`).
-- **Delays.** GitHub runs schedules on a best-effort basis. Runs can start late or be dropped when GitHub is busy, especially at the top of the hour, which is why the cron uses minute 7. "Hourly" means roughly hourly.
+- **Cost.** GitHub-hosted standard runners are free for public repositories. A *private* repository on the Free plan gets 2,000 minutes per month. A run with the headless browser takes roughly 2–4 minutes; every 2 hours that's about 1,000–1,500 minutes a month, close to the limit in a private repo. Keep the repo public, or reduce the schedule (for example `7 */4 * * *`).
+- **Delays.** GitHub runs schedules on a best-effort basis. Runs can start late or be dropped when GitHub is busy, especially at the top of the hour, which is why the cron uses minute 7. "Every 2 hours" means roughly every 2 hours.
 - **Auto-disable.** In public repositories, scheduled workflows are disabled after **60 days with no repository activity**. GitHub emails you, and you can re-enable it from the Actions tab with one click. Pushing any commit also counts as activity.
 - **Overlap.** `concurrency: monitor` makes runs queue instead of overlapping, which would corrupt the SQLite file.
 - **Request budget per run.** For each page: robots.txt, the page itself, sometimes one followed "openings" link or one headless-browser load, plus at most 25 job pages (only for new jobs, or for details older than a day). Each host gets at least 1 second between requests. Images, fonts and media are not loaded by the headless browser.

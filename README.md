@@ -7,12 +7,12 @@ An open-source, AI-powered job intelligence platform that monitors company caree
 ## What it does
 
 1. **You give it careers-page links, from any company.** Search or filter the page for your field if it has a search box, then paste the URL into the **web app** ([docs/dashboard.md](docs/dashboard.md)). You can also use a form in GitHub (works from your phone), add one line to `config/companies.yaml`, or run `ihaveajob add-source "<url>"`.
-2. **Every hour, it checks every page** on GitHub's servers, so your computer can be off. Each link is read the best way available:
+2. **Every 2 hours, it checks every page** on GitHub's servers, so your computer can be off. Each link is read the best way available:
    - the company's job-board feed (Workday, Ashby, Greenhouse, Lever), found automatically even when it's hidden behind the company's own site;
    - structured job data or job links on the page;
    - a real headless browser for pages built with JavaScript;
    - and, as a last resort, watching the page text.
-3. **It emails you what changed:** new jobs, edited jobs (old → new, with added and removed description lines), jobs no longer listed, and page-text changes. You get one digest per hour, only when something changed, and never the same item twice.
+3. **It emails you what changed:** new jobs, edited jobs (old → new, with added and removed description lines), jobs no longer listed, and page-text changes. You get one digest per check, only when something changed, and never the same item twice.
 
 Pages that block automated access, need a login, or whose robots.txt forbids reading are reported as such. They're never silently skipped, and the protections are never worked around.
 
@@ -22,7 +22,7 @@ Pages that block automated access, need a login, or whose robots.txt forbids rea
 
 1. **Email:** add the Gmail App Password and recipient as repository secrets ([docs/email.md](docs/email.md)).
 2. **Pages:** go to Actions → **add careers page** → Run workflow, and paste a link. Repeat for each company.
-3. **Start:** go to Actions → **monitor** → Run workflow. You'll get a "monitoring started" email, then hourly change digests.
+3. **Start:** go to Actions → **monitor** → Run workflow. You'll get a "monitoring started" email, then change digests every 2 hours.
 4. Optional: add a private Postgres database as the `DATABASE_URL` secret ([docs/scheduling.md](docs/scheduling.md)).
 
 ## Local development
