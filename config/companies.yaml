@@ -27,3 +27,8 @@ sources:
     adapter: google_careers
     url: https://www.google.com/about/careers/applications/jobs/results?q=sustainability
     enabled: true
+  - key: adobe
+    company: Adobe
+    adapter: auto
+    url: https://careers.adobe.com/us/en/c/research-jobs
+    enabled: true
