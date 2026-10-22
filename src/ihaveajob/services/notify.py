@@ -173,8 +173,8 @@ def send_digests(
     return outcomes
 
 
-SAMPLE_BANNER = ("SAMPLE EMAIL: real jobs currently tracked, shown as if they were new, so you can see the format. "
-                 "Nothing was recorded; real alerts only include actual changes.")
+SAMPLE_BANNER = ("Sample email: these are real jobs you're tracking, but the alerts are examples to show the format "
+                 "(including the 'updated' and 'removed' ones). Real emails only contain actual changes.")
 
 
 def build_sample(session: Session, now: datetime, limit: int = 5):
@@ -185,11 +185,18 @@ def build_sample(session: Session, now: datetime, limit: int = 5):
         .order_by(Job.published_at.desc().nullslast(), Job.id.desc()).limit(limit)).all()
     if not rows:
         return None
-    changes = [(JobChange(id=None, job_id=j.id, change_type="new", changed_fields={}, detected_at=now), j, s)
-               for j, s in rows]
-    digest = build_digest(changes, [], [], now)
+    changes = []
+    for i, (j, s) in enumerate(rows):
+        kind, fields = "new", {}
+        if i == len(rows) - 2 and len(rows) >= 4:  # one example update
+            kind = "updated"
+            fields = {"title": {"old": j.title, "new": f"Senior {j.title}"},
+                      "description_text": {"old_len": 0, "new_len": 0,
+                                           "added": ["Example: this role is now open to remote candidates."],
+                                           "removed": ["Example: must be based in the office 5 days a week."]}}
+        elif i == len(rows) - 1 and len(rows) >= 4:  # one example removal
+            kind = "closed"
+        changes.append((JobChange(id=None, job_id=j.id, change_type=kind, changed_fields=fields, detected_at=now), j, s))
+    digest = build_digest(changes, [], [], now, notice=SAMPLE_BANNER)
     digest.subject = "[SAMPLE] " + digest.subject
-    digest.text = SAMPLE_BANNER + "\n\n" + digest.text
-    digest.html = (f'<p style="font-family:sans-serif;background:#fff4e5;border:1px solid #f5c26b;padding:10px;'
-                   f'border-radius:6px;font-size:13px">{SAMPLE_BANNER}</p>') + digest.html
     return digest

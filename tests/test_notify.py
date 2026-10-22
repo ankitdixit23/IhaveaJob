@@ -155,6 +155,6 @@ def test_sample_email_uses_real_jobs_and_records_nothing(sessions, settings, clo
     h.run({"jobs": [ashby_job(1), ashby_job(2)]})
     with sessions() as s:
         digest = build_sample(s, clock.now)
-    assert digest.subject.startswith("[SAMPLE]") and "Climate Analyst 1" in digest.text and "SAMPLE" in digest.html
+    assert digest.subject.startswith("[SAMPLE]") and "Climate Analyst 1" in digest.text and "Sample email" in digest.html
     with sessions() as s:
         assert not list(s.scalars(select(NotificationItem))) and not list(s.scalars(select(Notification)))
