@@ -17,7 +17,6 @@ import html
 import os
 import sys
 import tempfile
-from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,7 +26,6 @@ sys.path.insert(0, str(ROOT / "src"))
 # hourly GitHub run uses a real browser for JavaScript-built pages.
 os.environ.setdefault("IHAVEAJOB_DISABLE_RENDER", "1")
 
-import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from ihaveajob.collectors import CollectContext, UnsupportedUrl, get_collector  # noqa: E402
@@ -52,53 +50,36 @@ FETCH_HINTS = {
     "http_status": "The site returned an error. Try again later, or add it anyway: the hourly check retries.",
 }
 
-st.set_page_config(page_title="IhaveaJob", page_icon="🌿", layout="wide")
+st.set_page_config(page_title="IhaveaJob", layout="wide")
 
 # --- look and feel ----------------------------------------------------------------
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&display=swap');
-:root { --forest:#12372A; --moss:#4F7C5A; --mist:#F4F7F5; --ink:#1B2420; --slate:#66756F; --amber:#E3A03A;
-        --line:#DCE5E0; --paper:#FFFFFF; }
-html, body, .stApp, .stMarkdown p, .stMarkdown li, label, input, textarea, button p, [data-testid="stCaptionContainer"] {
-  font-family:'Public Sans', system-ui, sans-serif; }
-h1, h2, h3, .hj-headline { font-family:'Bricolage Grotesque', 'Public Sans', sans-serif !important; letter-spacing:-0.01em; }
-.block-container { max-width: 1080px; padding-top: 2.2rem; }
-.hj-brand { display:flex; align-items:center; gap:.5rem; color:var(--moss); font-weight:600; font-size:.95rem; }
-.hj-brand b { color:var(--forest); font-family:'Bricolage Grotesque', sans-serif; font-size:1.15rem; }
-.hj-headline { font-size:2.35rem; line-height:1.15; color:var(--ink); font-weight:700; margin:.35rem 0 .4rem; max-width: 30ch; }
-.hj-sub { color:var(--slate); font-size:1rem; max-width: 62ch; margin-bottom: 1.4rem; }
-.hj-pulse { background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:14px 18px; margin-bottom:1.6rem; }
-.hj-pulse-row { display:grid; grid-template-columns: minmax(110px, 180px) 1fr auto; align-items:center; gap:14px; padding:6px 0; }
-.hj-pulse-row + .hj-pulse-row { border-top:1px solid #EEF2F0; }
-.hj-pulse-name { font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.hj-days { display:flex; gap:4px; }
-.hj-day { width:16px; height:16px; border-radius:4px; background:#E9EFEC; }
-.hj-day.l1 { background:#F6DDB0; } .hj-day.l2 { background:#EDBE6B; } .hj-day.l3 { background:var(--amber); }
-.hj-pulse-count { color:var(--slate); font-size:.85rem; white-space:nowrap; }
-.hj-pulse-legend { color:var(--slate); font-size:.8rem; margin-top:6px; }
-.hj-job { background:var(--paper); border:1px solid var(--line); border-left:4px solid transparent; border-radius:10px;
-          padding:12px 16px; margin-bottom:10px; display:grid; grid-template-columns: 1fr auto; gap:4px 16px; }
-.hj-job.new { border-left-color: var(--amber); }
-.hj-job a.hj-title { color:var(--ink); font-weight:600; font-size:1.02rem; text-decoration:none; }
-.hj-job a.hj-title:hover, .hj-job a.hj-title:focus { color:var(--forest); text-decoration:underline; }
-.hj-meta { color:var(--slate); font-size:.88rem; grid-column:1; }
-.hj-meta .co { color:var(--moss); font-weight:600; margin-right:.6rem; }
-.hj-meta .team { margin-left:.6rem; padding-left:.6rem; border-left:1px solid var(--line); }
-.hj-when { color:var(--slate); font-size:.82rem; text-align:right; white-space:nowrap; grid-row:1 / span 2; grid-column:2; }
-.hj-tag { display:inline-block; background:#FBEBCD; color:#7A4E07; border-radius:999px; padding:1px 9px; font-size:.75rem;
-          font-weight:600; margin-left:.5rem; vertical-align:2px; }
-.hj-change { font-size:.88rem; color:var(--ink); margin-top:4px; grid-column:1 / span 2; }
-.hj-change del { color:#A23B2A; } .hj-change ins { color:#1F6B3A; text-decoration:none; font-weight:600; }
-.hj-empty { color:var(--slate); padding: 1.2rem 0; }
-div[data-testid="stTabs"] button p { font-size:1rem; font-weight:600; }
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');
+:root { --accent:#12372A; --ink:#1B2420; --muted:#5F6B66; --line:#E3E8E5; --soft:#F6F8F7; --new:#B26A00; }
+html, body, .stApp, .stMarkdown p, .stMarkdown li, label, input, textarea, button p, h1, h2, h3,
+[data-testid="stCaptionContainer"] { font-family:'Public Sans', system-ui, -apple-system, sans-serif; }
+.block-container { max-width: 960px; padding-top: 3.5rem; }
+h3 { font-weight:600 !important; font-size:1.15rem !important; }
+.hj-brand { color:var(--accent); font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; }
+.hj-headline { font-size:1.6rem; line-height:1.25; color:var(--ink); font-weight:600; margin:.6rem 0 .25rem; }
+.hj-sub { color:var(--muted); font-size:.95rem; margin-bottom:1.2rem; }
+.hj-list { border:1px solid var(--line); border-radius:8px; background:#fff; }
+.hj-job { display:grid; grid-template-columns: 1fr auto; gap:2px 16px; padding:12px 16px; }
+.hj-job + .hj-job { border-top:1px solid var(--line); }
+.hj-job a.hj-title, .hj-job .hj-title { color:var(--ink); font-weight:600; font-size:.98rem; text-decoration:none; }
+.hj-job a.hj-title:hover, .hj-job a.hj-title:focus { color:var(--accent); text-decoration:underline; }
+.hj-meta { color:var(--muted); font-size:.87rem; grid-column:1; }
+.hj-meta .co { color:var(--ink); font-weight:500; margin-right:.5rem; }
+.hj-meta .team { margin-left:.5rem; padding-left:.5rem; border-left:1px solid var(--line); }
+.hj-when { color:var(--muted); font-size:.82rem; text-align:right; white-space:nowrap; grid-row:1 / span 2; grid-column:2; }
+.hj-tag { color:var(--new); font-size:.78rem; font-weight:600; margin-left:.5rem; }
+.hj-change { font-size:.86rem; color:var(--muted); margin-top:2px; grid-column:1 / span 2; }
+.hj-empty { color:var(--muted); padding:1rem 0; }
 @media (max-width: 640px) {
-  .hj-headline { font-size:1.7rem; }
-  .hj-pulse-row { grid-template-columns: 1fr; gap:6px; }
-  .hj-day { width:13px; height:13px; }
+  .hj-headline { font-size:1.3rem; }
   .hj-job { grid-template-columns: 1fr; } .hj-when { grid-column:1; grid-row:auto; text-align:left; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 """
 
@@ -125,7 +106,7 @@ def check_password() -> bool:
     if not expected or st.session_state.get("authed"):
         return True
     st.markdown(CSS, unsafe_allow_html=True)
-    st.markdown('<div class="hj-brand">🌿 <b>IhaveaJob</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hj-brand">IhaveaJob</div>', unsafe_allow_html=True)
     pw = st.text_input("Password", type="password", key="password")
     if pw:
         if hmac.compare_digest(pw, expected):
@@ -236,7 +217,7 @@ def job_card(job: dict, change: dict | None = None) -> str:
     url = safe_url(job.get("url"))
     title = (f'<a class="hj-title" href="{e(url)}" target="_blank" rel="noopener">{e(job["title"])}</a>'
              if url else f'<span class="hj-title">{e(job["title"])}</span>')
-    tag = '<span class="hj-tag">New</span>' if job.get("is_new") else ""
+    tag = '<span class="hj-tag">New</span>' if job.get("is_new") else ""  # plain text label
     where = e(job.get("location"))
     if job.get("department"):
         where += f'<span class="team">{e(job["department"])}</span>'
@@ -244,14 +225,14 @@ def job_card(job: dict, change: dict | None = None) -> str:
     when = (f"Posted {nice_date(job['posted'])}" if job.get("posted")
             else f"Seen {nice_date(job['first_seen'])}" if job.get("first_seen") else "")
     extra = f'<div class="hj-change">{change}</div>' if change else ""
-    return (f'<div class="hj-job{" new" if job.get("is_new") else ""}"><div>{title}{tag}</div>'
+    return (f'<div class="hj-job"><div>{title}{tag}</div>'
             f'<div class="hj-when">{e(when)}</div>'
             f'<div class="hj-meta"><span class="co">{e(job["company"])}</span>{where}</div>{extra}</div>')
 
 
 def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
     st.markdown(CSS, unsafe_allow_html=True)
-    st.markdown('<div class="hj-brand">🌿 <b>IhaveaJob</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hj-brand">IhaveaJob</div>', unsafe_allow_html=True)
     since = date.today() - timedelta(days=1)
     fresh = [a for a in activity if a["change"] == "New" and a["day"] >= since]
     watching = [s for s in sources if s.enabled]
@@ -259,37 +240,16 @@ def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
         n = len(fresh)
         headline = f"{n} new job{'s' if n != 1 else ''} since yesterday at {join_names([a['company'] for a in fresh])}."
     elif watching:
-        headline = "Nothing new since yesterday. Still watching."
+        headline = "No new jobs since yesterday."
     else:
-        headline = "Add a careers page to start watching."
-    sub = (f"{len(jobs)} jobs on watch across {len(watching)} careers page{'s' if len(watching) != 1 else ''}. "
-           "Checked every hour; you get an email whenever something changes.") if watching else \
-        "Paste any company's careers link. IhaveaJob checks it every hour and emails you what changed."
+        headline = "Add a careers page to get started."
+    if watching:
+        sub = (f"Watching {len(jobs)} jobs on {len(watching)} careers page{'s' if len(watching) != 1 else ''}. "
+               "Pages are checked every hour, and you're emailed when something changes.")
+    else:
+        sub = "Paste any company's careers link. It's checked every hour, and you're emailed when something changes."
     st.markdown(f'<div class="hj-headline">{e(headline)}</div><div class="hj-sub">{e(sub)}</div>',
                 unsafe_allow_html=True)
-    if watching:
-        pulse(watching, activity)
-
-
-def pulse(sources, activity: list[dict], days: int = 14) -> None:
-    today = date.today()
-    window = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
-    per = defaultdict(Counter)
-    for a in activity:
-        if a["change"] == "New":
-            per[a["company"]][a["day"]] += 1
-    rows = []
-    for name in sorted({s.company for s in sources}):
-        counts = per.get(name, Counter())
-        cells = "".join(
-            f'<span class="hj-day {"l3" if counts[d] >= 3 else "l2" if counts[d] == 2 else "l1" if counts[d] else ""}" '
-            f'title="{e(d.strftime("%b %-d"))}: {counts[d]} new"></span>' for d in window)
-        total = sum(counts[d] for d in window)
-        rows.append(f'<div class="hj-pulse-row"><div class="hj-pulse-name">{e(name)}</div>'
-                    f'<div class="hj-days" aria-label="{e(name)}: {total} new jobs in {days} days">{cells}</div>'
-                    f'<div class="hj-pulse-count">{total} new in {days} days</div></div>')
-    st.markdown(f'<div class="hj-pulse">{"".join(rows)}<div class="hj-pulse-legend">Each square is a day; '
-                f'amber means new jobs appeared. Hover a square for the count.</div></div>', unsafe_allow_html=True)
 
 
 def jobs_tab(jobs: list[dict]) -> None:
@@ -314,7 +274,8 @@ def jobs_tab(jobs: list[dict]) -> None:
                     unsafe_allow_html=True)
         return
     limit = st.session_state.get("job_limit", PAGE_SIZE)
-    st.markdown("".join(job_card(j) for j in shown[:limit]), unsafe_allow_html=True)
+    st.markdown('<div class="hj-list">' + "".join(job_card(j) for j in shown[:limit]) + "</div>",
+                unsafe_allow_html=True)
     if len(shown) > limit and st.button(f"Show {min(PAGE_SIZE, len(shown) - limit)} more", key="more_jobs"):
         st.session_state["job_limit"] = limit + PAGE_SIZE
         st.rerun()
@@ -359,7 +320,7 @@ def add_tab(store: Store) -> None:
             text, sha = store.read_config()
             store.save_config(add_source_text(text, source), sha, f"Add careers page: {source.company}")
             st.success(f"Now watching **{source.company}**. The next check records its current jobs; from then on "
-                       "you'll be emailed about every change.", icon="✅")
+                       "you'll be emailed about every change.")
             st.session_state["just_added"] = True
         except (UnsupportedUrl, ConfigError, GitHubError) as exc:
             st.error(str(exc))
@@ -373,11 +334,12 @@ def show_preview(p: dict) -> None:
     st.markdown(f"### {e(src.company)}")
     st.caption(f"Read via {p['mode']}. Found {p['found']} jobs, {p['matching']} match your filters.")
     if p["jobs"]:
-        st.markdown("".join(job_card(j) for j in p["jobs"]), unsafe_allow_html=True)
+        st.markdown('<div class="hj-list">' + "".join(job_card(j) for j in p["jobs"]) + "</div>",
+                    unsafe_allow_html=True)
     elif p["page_text"] is not None:
         st.info("No individual jobs in this page's HTML. Many sites build their job list with JavaScript; the hourly "
                 "check opens pages in a real browser and usually finds the jobs there. Either way you'll be told "
-                "when the page changes.", icon="ℹ️")
+                "when the page changes.")
     for note in p["notes"]:
         st.caption(note)
 
@@ -393,9 +355,10 @@ def pages_tab(store: Store, text: str, sha: str | None, sources, status) -> None
         with st.container(border=True):
             left, right = st.columns([4, 1.3])
             with left:
-                state = "Paused" if not src.enabled else ("Needs attention" if failing else "Watching")
-                icon = {"Paused": "⏸", "Needs attention": "⚠️", "Watching": "🟢"}[state]
-                st.markdown(f"**{e(src.company)}** &nbsp; <small>{icon} {state}</small>", unsafe_allow_html=True)
+                state = "Paused" if not src.enabled else ("Needs attention" if failing else "Active")
+                color = {"Paused": "#5F6B66", "Needs attention": "#A23B2A", "Active": "#12372A"}[state]
+                st.markdown(f'**{e(src.company)}** &nbsp; <small style="color:{color};font-weight:600">{state}</small>',
+                            unsafe_allow_html=True)
                 st.markdown(f"[{e(src.url)}]({src.url})")
                 details = []
                 if src.enabled and info:
@@ -436,7 +399,7 @@ def _edit(store: Store, text: str, sha: str | None, key: str, action: str, compa
     try:
         store.save_config(edit_sources_text(text, apply), sha,
                           f"{'Remove' if action == 'remove' else 'Pause/resume'} careers page: {company}")
-        st.toast(f"{company} {'removed' if action == 'remove' else 'updated'}", icon="✅")
+        st.toast(f"{company} {'removed' if action == 'remove' else 'updated'}")
         st.rerun()
     except (ConfigError, GitHubError) as exc:
         st.error(str(exc))
@@ -446,36 +409,13 @@ def changes_tab(sessions, activity: list[dict]) -> None:
     if sessions is None:
         st.markdown('<div class="hj-empty">No checks have run yet.</div>', unsafe_allow_html=True)
         return
-    c1, c2 = st.columns([1, 2])
-    hours = c1.segmented_control("Period", options=[24, 168, 720], default=168, key="chg_period",
-                                 format_func=lambda h: {24: "Day", 168: "Week", 720: "Month"}[h]) or 168
-    kinds = c2.pills("Show", ["New", "Updated", "Removed"], selection_mode="multi",
-                     default=["New", "Updated", "Removed"], key="chg_kinds") or ["New", "Updated", "Removed"]
+    c1, c2 = st.columns(2)
+    hours = c1.selectbox("Period", options=[24, 168, 720], index=1, key="chg_period",
+                         format_func=lambda h: {24: "Last 24 hours", 168: "Last 7 days", 720: "Last 30 days"}[h])
+    kinds = c2.multiselect("Type", ["New", "Updated", "Removed"], default=["New", "Updated", "Removed"],
+                           key="chg_kinds") or ["New", "Updated", "Removed"]
     with sessions() as session:
         rows = [r for r in recent_changes(session, hours=hours, limit=400) if r["change"] in kinds]
-    days = max(1, hours // 24)
-    since = date.today() - timedelta(days=days - 1)
-    chart = pd.DataFrame([a for a in activity if a["day"] >= since and a["change"] in kinds])
-    if not chart.empty and days > 1:
-        import altair as alt
-
-        kinds_order = [k for k in ("New", "Updated", "Removed") if k in kinds]
-        all_days = [since + timedelta(days=i) for i in range(days)]
-        counted = chart.groupby(["day", "change"]).size()
-        grid = pd.DataFrame([{"day": d.strftime("%b %-d"), "change": k, "count": int(counted.get((d, k), 0))}
-                             for d in all_days for k in kinds_order])
-        palette = {"New": "#E3A03A", "Updated": "#4F7C5A", "Removed": "#9AA7A1"}
-        bars = alt.Chart(grid).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
-            x=alt.X("day:O", title=None, sort=[d.strftime("%b %-d") for d in all_days],
-                    axis=alt.Axis(labelAngle=0, labelOverlap=True)),
-            y=alt.Y("count:Q", title=None, stack=True, axis=alt.Axis(tickMinStep=1)),
-            color=alt.Color("change:N", title=None, sort=kinds_order,
-                            scale=alt.Scale(domain=kinds_order, range=[palette[k] for k in kinds_order]),
-                            legend=alt.Legend(orient="top")),
-            tooltip=[alt.Tooltip("day:O", title="Day"), alt.Tooltip("change:N", title="Change"),
-                     alt.Tooltip("count:Q", title="Jobs")],
-        ).properties(height=170)
-        st.altair_chart(bars, width="stretch")
     if not rows:
         st.markdown('<div class="hj-empty">No changes in this period. You\'ll get an email as soon as something '
                     'changes.</div>', unsafe_allow_html=True)
@@ -491,7 +431,7 @@ def changes_tab(sessions, activity: list[dict]) -> None:
                "url": r["link"], "posted": None, "first_seen": r["when"], "is_new": r["change"] == "New"}
         label = {"New": "", "Updated": "Updated ", "Removed": "Removed "}[r["change"]]
         cards.append(job_card(job, note).replace(f"Seen {nice_date(r['when'])}", f"{label}{ago(r['when'])}"))
-    st.markdown("".join(cards), unsafe_allow_html=True)
+    st.markdown('<div class="hj-list">' + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 
 def sidebar(store: Store) -> None:
@@ -515,9 +455,9 @@ def sidebar(store: Store) -> None:
             if runs:
                 st.caption("Recent checks")
             for r in runs:
-                icon = {"success": "✅", "failure": "❌", None: "⏳"}.get(r["conclusion"], "•")
+                label = {"success": "Completed", "failure": "Failed", None: "Running"}.get(r["conclusion"], "Finished")
                 when = ago(datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")))
-                st.caption(f"{icon} [{when}]({r['url']})")
+                st.caption(f"[{when}]({r['url']}): {label}")
         else:
             st.caption("Local mode: changes save to config/companies.yaml on this computer.")
         if st.button("Refresh", width="stretch"):
