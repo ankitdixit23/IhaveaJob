@@ -130,7 +130,7 @@ def test_app_shows_jobs_with_search_and_escapes_page_text(app_copy, tmp_path):
     at = AppTest.from_file(str(app_copy / "dashboard" / "app.py"), default_timeout=60).run()
     assert not at.exception
     page = " ".join(m.value for m in at.markdown)
-    assert "1 new job since yesterday at Acme." in page
+    assert "1 new job since yesterday at Acme" in page
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
     at.text_input(key="job_search").input("climate").run()
     page = " ".join(m.value for m in at.tabs[1].markdown)

@@ -61,8 +61,10 @@ html, body, .stApp, .stMarkdown p, .stMarkdown li, label, input, textarea, butto
 [data-testid="stCaptionContainer"] { font-family:'Public Sans', system-ui, -apple-system, sans-serif; }
 .block-container { max-width: 960px; padding-top: 3.5rem; }
 h3 { font-weight:600 !important; font-size:1.15rem !important; }
-.hj-brand { color:var(--accent); font-weight:700; font-size:1.05rem; letter-spacing:-0.01em; }
-.hj-headline { font-size:1.6rem; line-height:1.25; color:var(--ink); font-weight:600; margin:.6rem 0 .25rem; }
+.hj-brand { color:var(--accent); font-weight:700; font-size:2.25rem; line-height:1.2; letter-spacing:-0.02em;
+            text-align:center; margin:.25rem 0 1.25rem; }
+.hj-headline { font-size:1.05rem; line-height:1.4; color:var(--ink); font-weight:600; text-align:center;
+               margin:-.5rem 0 1.25rem; }
 .hj-sub { color:var(--muted); font-size:.95rem; margin-bottom:1.2rem; }
 .hj-list { border:1px solid var(--line); border-radius:8px; background:#fff; }
 .hj-job { display:grid; grid-template-columns: 1fr auto; gap:2px 16px; padding:12px 16px; }
@@ -77,7 +79,7 @@ h3 { font-weight:600 !important; font-size:1.15rem !important; }
 .hj-change { font-size:.86rem; color:var(--muted); margin-top:2px; grid-column:1 / span 2; }
 .hj-empty { color:var(--muted); padding:1rem 0; }
 @media (max-width: 640px) {
-  .hj-headline { font-size:1.3rem; }
+  .hj-brand { font-size:1.75rem; }
   .hj-job { grid-template-columns: 1fr; } .hj-when { grid-column:1; grid-row:auto; text-align:left; }
 }
 </style>
@@ -235,21 +237,10 @@ def hero(sources, jobs: list[dict], activity: list[dict]) -> None:
     st.markdown('<div class="hj-brand">IhaveaJob</div>', unsafe_allow_html=True)
     since = date.today() - timedelta(days=1)
     fresh = [a for a in activity if a["change"] == "New" and a["day"] >= since]
-    watching = [s for s in sources if s.enabled]
     if fresh:
         n = len(fresh)
-        headline = f"{n} new job{'s' if n != 1 else ''} since yesterday at {join_names([a['company'] for a in fresh])}."
-    elif watching:
-        headline = ""
-    else:
-        headline = "Add a careers page to get started."
-    if watching:
-        sub = (f"Watching {len(jobs)} jobs on {len(watching)} careers page{'s' if len(watching) != 1 else ''}. "
-               "Pages are checked every hour, and you're emailed when something changes.")
-    else:
-        sub = "Paste any company's careers link. It's checked every hour, and you're emailed when something changes."
-    head = f'<div class="hj-headline">{e(headline)}</div>' if headline else ""
-    st.markdown(f'{head}<div class="hj-sub">{e(sub)}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="hj-headline">{n} new job{"s" if n != 1 else ""} since yesterday at '
+                    f'{e(join_names([a["company"] for a in fresh]))}</div>', unsafe_allow_html=True)
 
 
 def jobs_tab(jobs: list[dict]) -> None:
