@@ -82,7 +82,7 @@ def test_app_lists_adds_pauses_and_removes_pages(app_copy):
 
     at = AppTest.from_file(str(app_copy / "dashboard" / "app.py"), default_timeout=60).run()
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Jobs (0)", "Add a page", "My pages (2)", "Changes"]
+    assert [t.label for t in at.tabs] == ["Add a page", "Jobs (0)", "My pages (2)"]
     at.text_input(key="add_url").input("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=climate")
     at.text_input(key="add_company").input("NVIDIA")
     next(b for b in at.button if b.label == "Add page").click().run()
@@ -95,6 +95,13 @@ def test_app_lists_adds_pauses_and_removes_pages(app_copy):
     next(b for b in at.button if b.key == "rm-wri").click().run()
     assert "wri" not in {s.key for s in parse_sources(cfg.read_text())}
     assert cfg.read_text().startswith("# header comment")
+    # Edit: rename, change filters, keep key and paused state
+    at.text_input(key="edit-company-acme").input("Acme Climate")
+    at.text_input(key="edit-kw-acme").input("policy, data")
+    next(b for b in at.button if b.label == "Save changes" and "acme" in str(b.form_id)).click().run()
+    assert not at.exception
+    acme = {s.key: s for s in parse_sources(cfg.read_text())}["acme"]
+    assert acme.company == "Acme Climate" and acme.filters.keywords_any == ["policy", "data"] and acme.enabled is False
 
 
 def test_app_shows_jobs_with_search_and_escapes_page_text(app_copy, tmp_path):
@@ -126,11 +133,12 @@ def test_app_shows_jobs_with_search_and_escapes_page_text(app_copy, tmp_path):
     assert "1 new job since yesterday at Acme." in page
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
     at.text_input(key="job_search").input("climate").run()
-    page = " ".join(m.value for m in at.tabs[0].markdown)
+    page = " ".join(m.value for m in at.tabs[1].markdown)
     assert "Climate Data Analyst" in page and "Policy Lead" not in page
+    assert any(x.label.startswith("Acme  (1 job") for x in at.tabs[1].expander)  # grouped by company
     at.text_input(key="job_search").input("").run()
     at.toggle(key="job_only_new").set_value(True).run()
-    page = " ".join(m.value for m in at.tabs[0].markdown)
+    page = " ".join(m.value for m in at.tabs[1].markdown)
     assert "Policy Lead" in page and "Climate Data Analyst" not in page
 
 

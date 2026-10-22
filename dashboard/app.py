@@ -30,17 +30,17 @@ import streamlit as st  # noqa: E402
 
 from ihaveajob.collectors import CollectContext, UnsupportedUrl, get_collector  # noqa: E402
 from ihaveajob.config import (  # noqa: E402
-    ConfigError, add_source_text, build_source, edit_sources_text, parse_sources,
+    ConfigError, add_source_text, build_source, edit_sources_text, parse_sources, source_entry,
 )
 from ihaveajob.database import make_engine, session_factory  # noqa: E402
 from ihaveajob.filters import matches  # noqa: E402
 from ihaveajob.github_api import GitHubError, GitHubRepo  # noqa: E402
 from ihaveajob.http import FetchError, HttpClient  # noqa: E402
 from ihaveajob.models import SourceFilters  # noqa: E402
-from ihaveajob.services.status import daily_activity, list_jobs, recent_changes, source_status  # noqa: E402
+from ihaveajob.services.status import daily_activity, list_jobs, source_status  # noqa: E402
 
 CONFIG_PATH = "config/companies.yaml"
-PAGE_SIZE = 20
+MAX_PER_COMPANY = 100
 FETCH_HINTS = {
     "not_found": "This page doesn't exist (404). Open the link in your browser to check it.",
     "blocked": "This site refuses automated visitors (bot protection or a login), so it can't be monitored.",
@@ -268,17 +268,25 @@ def jobs_tab(jobs: list[dict]) -> None:
     shown = [j for j in jobs
              if (not picked or j["company"] in picked) and (not only_new or j["is_new"])
              and (not q or q in f'{j["title"]} {j["location"]} {j["department"]} {j["company"]}'.lower())]
-    st.caption(f"{len(shown)} of {len(jobs)} jobs" + (" (newest first)" if shown else ""))
     if not shown:
+        st.caption(f"0 of {len(jobs)} jobs")
         st.markdown('<div class="hj-empty">No jobs match. Try a shorter search or clear the filters.</div>',
                     unsafe_allow_html=True)
         return
-    limit = st.session_state.get("job_limit", PAGE_SIZE)
-    st.markdown('<div class="hj-list">' + "".join(job_card(j) for j in shown[:limit]) + "</div>",
-                unsafe_allow_html=True)
-    if len(shown) > limit and st.button(f"Show {min(PAGE_SIZE, len(shown) - limit)} more", key="more_jobs"):
-        st.session_state["job_limit"] = limit + PAGE_SIZE
-        st.rerun()
+    groups: dict[str, list[dict]] = {}
+    for j in shown:
+        groups.setdefault(j["company"], []).append(j)
+    st.caption(f"{len(shown)} of {len(jobs)} jobs at {len(groups)} compan{'y' if len(groups) == 1 else 'ies'}")
+    filtering = bool(q or picked or only_new)
+    ordered = sorted(groups.items(), key=lambda kv: (-sum(j["is_new"] for j in kv[1]), kv[0].lower()))
+    for company, items in ordered:
+        new = sum(j["is_new"] for j in items)
+        label = f"{company}  ({len(items)} job{'s' if len(items) != 1 else ''}{f', {new} new' if new else ''})"
+        with st.expander(label, expanded=filtering or len(groups) <= 3 or new > 0):
+            st.markdown('<div class="hj-list">' + "".join(job_card(j) for j in items[:MAX_PER_COMPANY]) + "</div>",
+                        unsafe_allow_html=True)
+            if len(items) > MAX_PER_COMPANY:
+                st.caption(f"Showing the newest {MAX_PER_COMPANY}. Search to narrow the list.")
 
 
 def add_tab(store: Store) -> None:
@@ -377,12 +385,51 @@ def pages_tab(store: Store, text: str, sha: str | None, sources, status) -> None
                 if info and info["error"]:
                     st.caption(f"Last check failed ({info['failures_in_a_row']} in a row): {info['error'][:160]}")
             with right:
+                with st.popover("Edit", width="stretch"):
+                    edit_form(store, text, sha, src)
                 if st.button("Resume" if not src.enabled else "Pause", key=f"toggle-{src.key}", width="stretch"):
                     _edit(store, text, sha, src.key, "toggle", src.company)
                 with st.popover("Remove", width="stretch"):
                     st.write(f"Stop watching **{src.company}**? Its history is kept.")
                     if st.button("Remove page", key=f"rm-{src.key}", type="primary"):
                         _edit(store, text, sha, src.key, "remove", src.company)
+
+
+def edit_form(store: Store, text: str, sha: str | None, src) -> None:
+    f = src.filters
+    with st.form(f"edit-{src.key}"):
+        company = st.text_input("Company name", value=src.company, key=f"edit-company-{src.key}")
+        url = st.text_input("Careers page link", value=src.url, key=f"edit-url-{src.key}")
+        keywords = st.text_input("Keywords", value=", ".join(f.keywords_any), key=f"edit-kw-{src.key}",
+                                 help="Only jobs mentioning at least one of these. Leave empty for all jobs.")
+        locations = st.text_input("Locations", value=", ".join(f.locations), key=f"edit-loc-{src.key}")
+        exclude = st.text_input("Skip jobs mentioning", value=", ".join(f.keywords_exclude), key=f"edit-ex-{src.key}")
+        saved = st.form_submit_button("Save changes", type="primary")
+    if not saved:
+        return
+    try:
+        new, _ = build_source(url.strip(), company=company.strip() or src.company, key=src.key,
+                              filters=_filters(keywords, locations, exclude))
+        new.enabled = src.enabled
+        if new.url == src.url and new.adapter == src.adapter:
+            new.options = {**src.options, **new.options}
+    except (UnsupportedUrl, ConfigError) as exc:
+        st.error(str(exc))
+        return
+
+    def apply(entries: list[dict]) -> None:
+        for i, entry in enumerate(entries):
+            entry_key = entry.get("key") or parse_sources(f"sources:\n  - url: {entry['url']}\n")[0].key
+            if entry_key == src.key:
+                entries[i] = source_entry(new)
+                return
+
+    try:
+        store.save_config(edit_sources_text(text, apply), sha, f"Edit careers page: {new.company}")
+        st.toast(f"{new.company} saved")
+        st.rerun()
+    except (ConfigError, GitHubError) as exc:
+        st.error(str(exc))
 
 
 def _edit(store: Store, text: str, sha: str | None, key: str, action: str, company: str) -> None:
@@ -403,35 +450,6 @@ def _edit(store: Store, text: str, sha: str | None, key: str, action: str, compa
         st.rerun()
     except (ConfigError, GitHubError) as exc:
         st.error(str(exc))
-
-
-def changes_tab(sessions, activity: list[dict]) -> None:
-    if sessions is None:
-        st.markdown('<div class="hj-empty">No checks have run yet.</div>', unsafe_allow_html=True)
-        return
-    c1, c2 = st.columns(2)
-    hours = c1.selectbox("Period", options=[24, 168, 720], index=1, key="chg_period",
-                         format_func=lambda h: {24: "Last 24 hours", 168: "Last 7 days", 720: "Last 30 days"}[h])
-    kinds = c2.multiselect("Type", ["New", "Updated", "Removed"], default=["New", "Updated", "Removed"],
-                           key="chg_kinds") or ["New", "Updated", "Removed"]
-    with sessions() as session:
-        rows = [r for r in recent_changes(session, hours=hours, limit=400) if r["change"] in kinds]
-    if not rows:
-        st.markdown('<div class="hj-empty">No changes in this period. You\'ll get an email as soon as something '
-                    'changes.</div>', unsafe_allow_html=True)
-        return
-    cards = []
-    for r in rows:
-        note = None
-        if r["change"] == "Updated" and r["what_changed"]:
-            note = "Changed: " + e(r["what_changed"].replace("_text", "").replace("_", " "))
-        elif r["change"] == "Removed":
-            note = "No longer listed on the page."
-        job = {"company": r["company"], "title": r["title"], "location": r["location"], "department": "",
-               "url": r["link"], "posted": None, "first_seen": r["when"], "is_new": r["change"] == "New"}
-        label = {"New": "", "Updated": "Updated ", "Removed": "Removed "}[r["change"]]
-        cards.append(job_card(job, note).replace(f"Seen {nice_date(r['when'])}", f"{label}{ago(r['when'])}"))
-    st.markdown('<div class="hj-list">' + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 
 def sidebar(store: Store) -> None:
@@ -487,16 +505,13 @@ def main() -> None:
             status, jobs, activity = source_status(session), list_jobs(session), daily_activity(session, 31)
     sidebar(store)
     hero(sources, jobs, activity)
-    t_jobs, t_add, t_pages, t_changes = st.tabs(
-        [f"Jobs ({len(jobs)})", "Add a page", f"My pages ({len(sources)})", "Changes"])
-    with t_jobs:
-        jobs_tab(jobs)
+    t_add, t_jobs, t_pages = st.tabs(["Add a page", f"Jobs ({len(jobs)})", f"My pages ({len(sources)})"])
     with t_add:
         add_tab(store)
+    with t_jobs:
+        jobs_tab(jobs)
     with t_pages:
         pages_tab(store, text, sha, sources, status)
-    with t_changes:
-        changes_tab(sessions, activity)
 
 
 main()

@@ -117,7 +117,8 @@ def parse_sources(text: str, path: str = "companies.yaml") -> list[SourceConfig]
     return sources
 
 
-def _entry(source: SourceConfig) -> dict:
+def source_entry(source: SourceConfig) -> dict:
+    """The YAML mapping for a source."""
     entry: dict = {"key": source.key, "company": source.company, "adapter": source.adapter, "url": source.url}
     if not source.filters.is_empty():
         entry["filters"] = source.filters.to_dict()
@@ -137,7 +138,7 @@ def add_source_text(text: str, source: SourceConfig) -> str:
         raise ConfigError("This page is already being monitored")
     text = text if text.strip() else "sources:\n"
     text = re.sub(r"^sources:\s*\[\]\s*$", "sources:", text, flags=re.M)
-    block = yaml.safe_dump([_entry(source)], sort_keys=False, allow_unicode=True)
+    block = yaml.safe_dump([source_entry(source)], sort_keys=False, allow_unicode=True)
     block = "\n".join("  " + line if line else line for line in block.splitlines())
     if not text.endswith("\n"):
         text += "\n"
