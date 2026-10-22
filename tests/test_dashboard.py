@@ -64,11 +64,14 @@ def test_github_put_sends_sha_and_branch(monkeypatch):
 
 @pytest.fixture
 def app_copy(tmp_path, monkeypatch):
-    pytest.importorskip("streamlit")
+    st = pytest.importorskip("streamlit")
+    st.cache_resource.clear()  # Streamlit caches are process-wide; isolate each test
+    st.cache_data.clear()
     for name in ("src", "dashboard"):
         shutil.copytree(ROOT / name, tmp_path / name)
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "companies.yaml").write_text(CONFIG)
+    (tmp_path / "data").mkdir()
     for var in ("GITHUB_TOKEN", "GITHUB_REPO", "APP_PASSWORD", "DATABASE_URL"):
         monkeypatch.delenv(var, raising=False)
     return tmp_path
@@ -79,20 +82,56 @@ def test_app_lists_adds_pauses_and_removes_pages(app_copy):
 
     at = AppTest.from_file(str(app_copy / "dashboard" / "app.py"), default_timeout=60).run()
     assert not at.exception
-    assert [m.value for m in at.metric][:1] == ["2"]
-    at.text_input[0].input("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=climate")
-    at.text_input[1].input("NVIDIA")
-    at.button[1].click().run()  # Add page
+    assert [t.label for t in at.tabs] == ["Jobs (0)", "Add a page", "My pages (2)", "Changes"]
+    at.text_input(key="add_url").input("https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=climate")
+    at.text_input(key="add_company").input("NVIDIA")
+    next(b for b in at.button if b.label == "Add page").click().run()
     assert not at.exception and at.success
     cfg = app_copy / "config" / "companies.yaml"
     added = {s.key: s for s in parse_sources(cfg.read_text())}["nvidia-climate"]
     assert added.adapter == "workday" and added.options["search_text"] == "climate"
-    pause = next(b for b in at.button if b.key == "toggle-acme")
-    pause.click().run()
+    next(b for b in at.button if b.key == "toggle-acme").click().run()
     assert {s.key: s.enabled for s in parse_sources(cfg.read_text())}["acme"] is False
     next(b for b in at.button if b.key == "rm-wri").click().run()
     assert "wri" not in {s.key for s in parse_sources(cfg.read_text())}
     assert cfg.read_text().startswith("# header comment")
+
+
+def test_app_shows_jobs_with_search_and_escapes_page_text(app_copy, tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from streamlit.testing.v1 import AppTest
+
+    from ihaveajob.database import make_engine, session_factory, upgrade
+    from ihaveajob.database.models import Company, Job, JobChange, Source
+
+    engine = make_engine(f"sqlite:///{app_copy}/data/ihaveajob.db")
+    upgrade(engine)
+    now = datetime.now(timezone.utc)
+    with session_factory(engine)() as s:
+        co = Company(slug="acme", name="Acme")
+        src = Source(key="acme", company=co, adapter="lever", url="https://jobs.lever.co/acme", filters={})
+        s.add_all([co, src]); s.flush()
+        for i, title in enumerate(["Climate Data Analyst", "<script>alert(1)</script> Policy Lead"]):
+            job = Job(source_id=src.id, company_id=co.id, external_id=str(i), title=title, company_name="Acme",
+                      locations=[], extra={}, url=f"https://jobs.lever.co/acme/{i}", first_detected_at=now,
+                      last_seen_at=now, content_hash="x", is_baseline=i == 0)
+            s.add(job); s.flush()
+            s.add(JobChange(job_id=job.id, change_type="baseline" if i == 0 else "new", changed_fields={},
+                            detected_at=now - timedelta(minutes=5)))
+        s.commit()
+    at = AppTest.from_file(str(app_copy / "dashboard" / "app.py"), default_timeout=60).run()
+    assert not at.exception
+    page = " ".join(m.value for m in at.markdown)
+    assert "1 new job since yesterday at Acme." in page
+    assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page
+    at.text_input(key="job_search").input("climate").run()
+    page = " ".join(m.value for m in at.tabs[0].markdown)
+    assert "Climate Data Analyst" in page and "Policy Lead" not in page
+    at.text_input(key="job_search").input("").run()
+    at.toggle(key="job_only_new").set_value(True).run()
+    page = " ".join(m.value for m in at.tabs[0].markdown)
+    assert "Policy Lead" in page and "Climate Data Analyst" not in page
 
 
 def test_app_password_gate(app_copy, monkeypatch):

@@ -65,3 +65,35 @@ def recent_changes(session: Session, hours: float = 48, limit: int = 200) -> lis
              "location": j.location or (j.extra or {}).get("card_text") or "", "link": j.application_url or j.url,
              "what_changed": ", ".join(c.changed_fields or {}) if c.change_type == "updated" else ""}
             for c, j, s in rows]
+
+
+def list_jobs(session: Session, new_within_hours: float = 48) -> list[dict]:
+    """All currently listed jobs that match filters, newest first, with a 'new' flag."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=new_within_hours)
+    rows = session.execute(
+        select(Job, Source).join(Source, Job.source_id == Source.id)
+        .where(Job.status != "closed", Job.matches_filters.is_(True), Source.enabled.is_(True))).all()
+    out = []
+    for job, src in rows:
+        out.append({
+            "id": job.id, "source": src.key, "company": src.company.name, "title": job.title,
+            "location": job.location or (job.extra or {}).get("card_text") or "",
+            "department": job.department or "", "url": job.application_url or job.url,
+            "posted": job.published_at, "first_seen": job.first_detected_at,
+            "is_new": (not job.is_baseline) and job.first_detected_at >= cutoff,
+        })
+    out.sort(key=lambda r: (r["is_new"], r["posted"] or r["first_seen"]), reverse=True)
+    return out
+
+
+def daily_activity(session: Session, days: int = 14) -> list[dict]:
+    """Counts of new/updated/removed per company per day (UTC) for charts."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = session.execute(
+        select(JobChange.detected_at, JobChange.change_type, Source.company_id, Source.key)
+        .join(Job, JobChange.job_id == Job.id).join(Source, Job.source_id == Source.id)
+        .where(JobChange.detected_at >= since, JobChange.change_type.in_(("new", "updated", "closed")),
+               Job.matches_filters.is_(True))).all()
+    names = {s.key: s.company.name for s in session.scalars(select(Source))}
+    labels = {"new": "New", "updated": "Updated", "closed": "Removed"}
+    return [{"day": ts.date(), "change": labels[kind], "company": names.get(key, key)} for ts, kind, _cid, key in rows]
