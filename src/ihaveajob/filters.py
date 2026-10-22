@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
 from .models import NormalizedJob, SourceFilters
 
 
 def _contains_any(haystack: str, needles: list[str]) -> bool:
     return any(n.lower() in haystack for n in needles)
+
+
+def _contains_word(haystack: str, needles: list[str]) -> bool:
+    """Whole-word match, so 'India' doesn't match 'Indiana' and 'NY' doesn't match 'Sunnyvale'."""
+    return any(re.search(r"(?<!\w)" + re.escape(n.lower()) + r"(?!\w)", haystack) for n in needles)
 
 
 def passes_structural(job: NormalizedJob, filters: SourceFilters) -> bool:
@@ -17,7 +24,7 @@ def passes_structural(job: NormalizedJob, filters: SourceFilters) -> bool:
         loc_text = " | ".join(job.locations or [job.extra.get("card_text") or ""]).lower()
         if job.workplace_type:
             loc_text += " | " + job.workplace_type.lower()
-        if not _contains_any(loc_text, filters.locations):
+        if not _contains_word(loc_text, filters.locations):
             return False
     return True
 

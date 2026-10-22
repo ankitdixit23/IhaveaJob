@@ -212,3 +212,16 @@ def test_invalid_configs_are_rejected(tmp_path, yaml_text, message):
     path.write_text(yaml_text)
     with pytest.raises(ConfigError, match=message):
         load_sources(path)
+
+
+def test_location_filter_matches_whole_words_only():
+    from ihaveajob.filters import matches
+    from ihaveajob.models import NormalizedJob, SourceFilters
+
+    f = SourceFilters(locations=["India"])
+    job = lambda loc: NormalizedJob(external_id="1", title="Analyst", company="X", url="u", locations=[loc])  # noqa: E731
+    assert matches(job("Bengaluru, Karnataka, India"), f)
+    assert matches(job("Remote - india"), f)
+    assert not matches(job("Indianapolis, IN, USA"), f)
+    assert not matches(job("Indiana, USA"), f)
+    assert matches(job("New York, NY, USA"), SourceFilters(locations=["New York"]))
