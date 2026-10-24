@@ -32,3 +32,8 @@ sources:
     adapter: auto
     url: https://careers.adobe.com/us/en/c/research-jobs
     enabled: true
+  - key: amazon
+    company: Amazon
+    adapter: auto
+    url: https://amazon.jobs/content/en/job-categories/software-development
+    enabled: true
